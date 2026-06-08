@@ -3,15 +3,15 @@ import json
 import argparse
 import db
 
-clients = {}  # Словарь {username: asyncio.StreamWriter}
+clients = {}  # {username: writer}
 
 
-async def broadcast(message_dict):
-    """Рассылает сообщение всем подключенным клиентам"""
-    line = json.dumps(message_dict).encode() + b'\n'
-    for user, writer in clients.items():
+async def send_to_user(username, data):
+    """Отправляет JSON-сообщение конкретному пользователю, если он онлайн"""
+    if username in clients:
+        writer = clients[username]
         try:
-            writer.write(line)
+            writer.write(json.dumps(data).encode() + b'\n')
             await writer.drain()
         except Exception:
             pass
@@ -20,62 +20,109 @@ async def broadcast(message_dict):
 async def handle_client(reader, writer):
     addr = writer.get_extra_info('peername')
     print(f"[Подключение] {addr}")
-
-    # 1. Ожидаем пакет авторизации
-    auth_line = await reader.readline()
-    if not auth_line:
-        writer.close()
-        return
+    username = None
 
     try:
+        # 1. АВТОРИЗАЦИЯ (Ожидаем первый пакет)
+        auth_line = await reader.readline()
+        if not auth_line:
+            return
+
         auth_data = json.loads(auth_line.decode().strip())
         username = auth_data.get('username')
         password = auth_data.get('password')
-    except json.JSONDecodeError:
-        writer.close()
-        return
 
-    # 2. Проверяем в БД
-    if not db.verify_user(username, password):
-        writer.write(json.dumps({"status": "error", "msg": "Неверный логин или пароль"}).encode() + b'\n')
+        if not db.verify_user(username, password):
+            writer.write(json.dumps({"status": "error", "msg": "Неверный логин или пароль"}).encode() + b'\n')
+            await writer.drain()
+            print(f"[Отказ] {addr} пытался войти как {username}")
+            return
+
+        # Успешный вход
+        writer.write(json.dumps({"status": "ok"}).encode() + b'\n')
         await writer.drain()
-        writer.close()
-        print(f"[Отказ в доступе] {addr} пытался войти как {username}")
-        return
 
-    # 3. Успешный вход
-    writer.write(json.dumps({"status": "ok"}).encode() + b'\n')
-    await writer.drain()
+        # Выкидываем старую сессию, если юзер зашел с другого устройства
+        if username in clients:
+            clients[username].close()
+        clients[username] = writer
+        print(f"[{username}] вошел в сеть.")
 
-    # Если пользователь уже онлайн с другого устройства — отключаем старое
-    if username in clients:
-        clients[username].close()
-
-    clients[username] = writer
-    print(f"[Авторизация] {username} вошел в чат.")
-    await broadcast({"sender": "SERVER", "msg": f"Пользователь {username} зашел в чат!"})
-
-    # 4. Основной цикл общения
-    try:
+        # 2. ОСНОВНОЙ ЦИКЛ ОБРАБОТКИ ДЕЙСТВИЙ
         while True:
             line = await reader.readline()
             if not line:
-                break  # Клиент отключился
+                break
 
             data = json.loads(line.decode().strip())
-            msg_text = data.get('msg')
+            action = data.get("action")
 
-            if msg_text:
-                await broadcast({"sender": username, "msg": msg_text})
-                print(f"[{username}]: {msg_text}")
+            # --- ОТПРАВКА СООБЩЕНИЯ ---
+            if action == "send_msg":
+                chat_id = data.get("chat_id")
+                text = data.get("text")
+
+                # Проверяем, есть ли у юзера доступ к этому чату
+                if db.check_user_in_chat(chat_id, username) and text:
+                    msg_obj = db.save_message(chat_id, username, text)
+                    members = db.get_chat_members(chat_id)
+
+                    notify_msg = {
+                        "action": "new_msg",
+                        "chat_id": chat_id,
+                        "message": msg_obj
+                    }
+                    # Рассылаем только участникам чата, которые сейчас онлайн
+                    for member in members:
+                        await send_to_user(member, notify_msg)
+
+            # --- ЗАПРОС ИСТОРИИ ---
+            elif action == "get_history":
+                chat_id = data.get("chat_id")
+                limit = data.get("limit", 50)
+                offset = data.get("offset", 0)
+
+                if db.check_user_in_chat(chat_id, username):
+                    messages = db.get_history(chat_id, limit, offset)
+                    await send_to_user(username, {
+                        "action": "history",
+                        "chat_id": chat_id,
+                        "messages": messages
+                    })
+
+            # --- ЗАПРОС СПИСКА ЧАТОВ ---
+            elif action == "get_chats":
+                chats = db.get_user_chats(username)
+                await send_to_user(username, {
+                    "action": "chat_list",
+                    "chats": chats
+                })
+
+            # --- СОЗДАНИЕ ЛИЧКИ (ДИАЛОГА) ---
+            elif action == "create_dialog":
+                target = data.get("target")
+                if not db.user_exists(target):
+                    await send_to_user(username, {"action": "error", "msg": f"Пользователь {target} не найден."})
+                    continue
+
+                chat_id = db.get_or_create_dialog(username, target)
+                await send_to_user(username, {
+                    "action": "dialog_created",
+                    "target": target,
+                    "chat_id": chat_id
+                })
+
+    except json.JSONDecodeError:
+        pass  # Игнорируем битые пакеты
     except ConnectionResetError:
         pass
+    except Exception as e:
+        print(f"Ошибка клиента {username}: {e}")
     finally:
-        if clients.get(username) == writer:
+        if username and clients.get(username) == writer:
             del clients[username]
+            print(f"[{username}] отключился.")
         writer.close()
-        await broadcast({"sender": "SERVER", "msg": f"{username} покинул чат."})
-        print(f"[Отключение] {username} вышел.")
 
 
 async def start_server(host, port):
@@ -87,9 +134,8 @@ async def start_server(host, port):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Simple Messenger Server")
-    parser.add_argument('--add-user', nargs=2, metavar=('LOGIN', 'PASS'),
-                        help="Создать учетку (Пример: --add-user admin 1234)")
+    parser = argparse.ArgumentParser(description="Messenger Server")
+    parser.add_argument('--add-user', nargs=2, metavar=('LOGIN', 'PASS'), help="Создать учетку")
     parser.add_argument('--run', action='store_true', help="Запустить сервер")
     parser.add_argument('--port', type=int, default=8888, help="Порт (по умолчанию 8888)")
 
