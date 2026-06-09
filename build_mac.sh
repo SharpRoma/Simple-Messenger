@@ -53,5 +53,11 @@ echo "Обновление кэша Dock и LaunchServices..."
 /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f "$APP_PATH"
 killall Dock
 
+# 8. Финальная уборка мусора
+echo "Очистка временных файлов сборки..."
+rm -rf build           # Удаляем папку build с промежуточными файлами C/Python
+rm -f AppIcon.icns     # Удаляем сгенерированную маковскую иконку (она уже зашита внутри .app)
+rm -f *.spec           # Удаляем файлы спецификаций PyInstaller
+
 echo "СБОРКА УСПЕШНО ЗАВЕРШЕНА!"
 echo "Ваше приложение готово: dist/SimpleMessenger.app"

@@ -3,3 +3,9 @@
 /build
 /server/.env
 *.pem
+*.spec
+AppIcon.icns
+.env
+server/data/
+client/settings.json
+.DS_Store

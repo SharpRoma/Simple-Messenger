@@ -9,7 +9,8 @@ lsof -i :8888
 kill -9 45123
 
 macos
-pyinstaller --noconsole --windowed --name "SimpleMessenger" client/main.py
-flet pack client/main.py --name "SimpleMessenger" --icon app_icon.png
+chmod +x build_mac.sh
+./build_mac.sh
 
 win
+./build_win.bat
