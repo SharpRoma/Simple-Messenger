@@ -1,6 +1,8 @@
-cd server
-python server.py --add-user ivan 1234
-python server.py --run
+python server/server.py --add-user ivan 1234
+python server/server.py --run
 
-cd client
-python client_cli.py
+python client/client_cli.py
+python client/client_gui.py
+
+lsof -i :8888
+kill -9 45123
