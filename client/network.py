@@ -1,5 +1,7 @@
 import asyncio
 import json
+import ssl  # <--- БИБЛИОТЕКА ДЛЯ ШИФРОВАНИЯ
+
 
 class MessengerNetwork:
     def __init__(self, on_message_received, on_disconnected):
@@ -8,11 +10,21 @@ class MessengerNetwork:
         self.on_message_received = on_message_received
         self.on_disconnected = on_disconnected
 
-    # --- ДОБАВЛЕН mode и secret ---
     async def connect(self, host, port, username, password, mode="login", secret=""):
         try:
-            # Увеличили лимит под файлы в будущем
-            self.reader, self.writer = await asyncio.open_connection(host, port, limit=1024*1024*50)
+            # --- НАСТРОЙКА SSL ДЛЯ КЛИЕНТА ---
+            ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            # Отключаем строгую проверку домена (т.к. у нас самоподписанный сертификат по IP)
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+            # Передаем ssl=ssl_context при подключении
+            self.reader, self.writer = await asyncio.open_connection(
+                host, port,
+                ssl=ssl_context,
+                limit=1024 * 1024 * 50
+            )
+
             auth_data = {"mode": mode, "username": username, "password": password, "secret": secret}
             await self.send(auth_data)
 
