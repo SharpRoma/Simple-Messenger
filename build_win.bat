@@ -27,7 +27,7 @@ if exist "*.spec" del /q "*.spec"
 
 echo Упаковка Python-кода (flet pack)...
 :: Используем обратный слеш (для Windows)
-flet pack client\main.py --name "SimpleMessenger" --icon app_icon.png
+flet pack client\main.py --name "SimpleMessenger" --icon app_icon.png --product-name "Simple Messenger" --product-version "1.0.0" --copyright "Simple Messenger"
 
 :: Проверяем, появился ли файл в папке dist
 if not exist "dist\SimpleMessenger.exe" (
