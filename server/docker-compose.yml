@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  messenger-server:
+    build: .
+    container_name: simple_messenger_server
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    volumes:
+      - messenger_data:/app/data
+    env_file:
+      - .env
+
+volumes:
+  messenger_data:
