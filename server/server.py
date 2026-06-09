@@ -2,19 +2,38 @@ import asyncio
 import json
 import argparse
 import db
+import base64
+import os
+import uuid
+from dotenv import load_dotenv
 
-clients = {}  # {username: writer}
+# Привязка путей относительно самого скрипта
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# Загружаем настройки из .env файла
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+SERVER_SECRET = os.environ.get("SERVER_SECRET")
+
+# Если пароля нет в .env - принудительно останавливаем сервер!
+if not SERVER_SECRET:
+    raise ValueError("КРИТИЧЕСКАЯ ОШИБКА: Переменная SERVER_SECRET не найдена в файле .env!")
+
+clients = {}
 
 
 async def send_to_user(username, data):
-    """Отправляет JSON-сообщение конкретному пользователю, если он онлайн"""
     if username in clients:
-        writer = clients[username]
-        try:
-            writer.write(json.dumps(data).encode() + b'\n')
-            await writer.drain()
-        except Exception:
-            pass
+        line = json.dumps(data).encode() + b'\n'
+        for writer in list(clients[username]):
+            try:
+                writer.write(line)
+                await writer.drain()
+            except:
+                pass
 
 
 async def handle_client(reader, writer):
@@ -23,111 +42,130 @@ async def handle_client(reader, writer):
     username = None
 
     try:
-        # 1. АВТОРИЗАЦИЯ (Ожидаем первый пакет)
         auth_line = await reader.readline()
-        if not auth_line:
-            return
+        if not auth_line: return
 
         auth_data = json.loads(auth_line.decode().strip())
+        mode = auth_data.get('mode', 'login')
         username = auth_data.get('username')
         password = auth_data.get('password')
 
+        if mode == "register":
+            secret = auth_data.get('secret')
+            if secret != SERVER_SECRET:
+                writer.write(json.dumps({"status": "error", "msg": "Неверный секретный код сервера!"}).encode() + b'\n')
+                return
+            if not db.add_user(username, password):
+                writer.write(json.dumps({"status": "error", "msg": "Пользователь уже существует"}).encode() + b'\n')
+                return
+            print(f"[Регистрация] Создан новый юзер: {username}")
+
         if not db.verify_user(username, password):
             writer.write(json.dumps({"status": "error", "msg": "Неверный логин или пароль"}).encode() + b'\n')
-            await writer.drain()
-            print(f"[Отказ] {addr} пытался войти как {username}")
             return
 
-        # Успешный вход
         writer.write(json.dumps({"status": "ok"}).encode() + b'\n')
         await writer.drain()
 
-        # Выкидываем старую сессию, если юзер зашел с другого устройства
-        if username in clients:
-            clients[username].close()
-        clients[username] = writer
+        if username not in clients: clients[username] = set()
+        clients[username].add(writer)
         print(f"[{username}] вошел в сеть.")
 
-        # 2. ОСНОВНОЙ ЦИКЛ ОБРАБОТКИ ДЕЙСТВИЙ
         while True:
             line = await reader.readline()
-            if not line:
-                break
+            if not line: break
 
             data = json.loads(line.decode().strip())
             action = data.get("action")
 
-            # --- ОТПРАВКА СООБЩЕНИЯ ---
             if action == "send_msg":
-                chat_id = data.get("chat_id")
-                text = data.get("text")
-
-                # Проверяем, есть ли у юзера доступ к этому чату
+                chat_id, text = data.get("chat_id"), data.get("text")
                 if db.check_user_in_chat(chat_id, username) and text:
-                    msg_obj = db.save_message(chat_id, username, text)
-                    members = db.get_chat_members(chat_id)
+                    msg_obj = db.save_message(chat_id, username, text=text)
+                    for member in db.get_chat_members(chat_id):
+                        await send_to_user(member, {"action": "new_msg", "chat_id": chat_id, "message": msg_obj})
 
-                    notify_msg = {
-                        "action": "new_msg",
-                        "chat_id": chat_id,
-                        "message": msg_obj
-                    }
-                    # Рассылаем только участникам чата, которые сейчас онлайн
-                    for member in members:
-                        await send_to_user(member, notify_msg)
+            # --- ЗАГРУЗКА ФАЙЛА НА СЕРВЕР ---
+            elif action == "send_file":
+                chat_id, filename, b64_data = data.get("chat_id"), data.get("filename"), data.get("data")
+                if db.check_user_in_chat(chat_id, username) and filename and b64_data:
+                    # Генерируем уникальное имя, чтобы файлы не перезаписывали друг друга
+                    ext = os.path.splitext(filename)[1]
+                    unique_name = f"{uuid.uuid4()}{ext}"
+                    file_path = os.path.join(UPLOAD_DIR, unique_name)
 
-            # --- ЗАПРОС ИСТОРИИ ---
+                    # Сохраняем физически
+                    with open(file_path, "wb") as f:
+                        f.write(base64.b64decode(b64_data))
+
+                    msg_obj = db.save_message(chat_id, username, file_name=filename, file_path=file_path)
+
+                    for member in db.get_chat_members(chat_id):
+                        await send_to_user(member, {"action": "new_msg", "chat_id": chat_id, "message": msg_obj})
+
+            # --- СКАЧИВАНИЕ ФАЙЛА С СЕРВЕРА ---
+            elif action == "req_file":
+                msg_id = data.get("msg_id")
+                file_path, file_name = db.get_message_file(msg_id, username)
+
+                if file_path and os.path.exists(file_path):
+                    with open(file_path, "rb") as f:
+                        b64_data = base64.b64encode(f.read()).decode('utf-8')
+                    writer.write(json.dumps({"action": "res_file", "msg_id": msg_id, "filename": file_name,
+                                             "data": b64_data}).encode() + b'\n')
+                    await writer.drain()
+
+            # --- УДАЛЕНИЕ СООБЩЕНИЯ (И ФАЙЛА) ---
+            elif action == "delete_msg":
+                msg_id, chat_id = data.get("msg_id"), data.get("chat_id")
+                del_result = db.delete_message(msg_id, username)
+
+                if del_result is not False:
+                    file_path = del_result.get("file_path")
+                    # Если был файл - удаляем с жесткого диска!
+                    if file_path and os.path.exists(file_path):
+                        os.remove(file_path)
+                        print(f"[Файл удален] {file_path}")
+
+                    for member in db.get_chat_members(chat_id):
+                        await send_to_user(member, {"action": "msg_deleted", "chat_id": chat_id, "msg_id": msg_id})
+
             elif action == "get_history":
-                chat_id = data.get("chat_id")
-                limit = data.get("limit", 50)
-                offset = data.get("offset", 0)
-
+                chat_id, limit, offset = data.get("chat_id"), data.get("limit", 50), data.get("offset", 0)
                 if db.check_user_in_chat(chat_id, username):
-                    messages = db.get_history(chat_id, limit, offset)
-                    await send_to_user(username, {
-                        "action": "history",
-                        "chat_id": chat_id,
-                        "messages": messages
-                    })
+                    writer.write(json.dumps({"action": "history", "chat_id": chat_id,
+                                             "messages": db.get_history(chat_id, limit, offset)}).encode() + b'\n')
+                    await writer.drain()
 
-            # --- ЗАПРОС СПИСКА ЧАТОВ ---
             elif action == "get_chats":
-                chats = db.get_user_chats(username)
-                await send_to_user(username, {
-                    "action": "chat_list",
-                    "chats": chats
-                })
+                writer.write(json.dumps({"action": "chat_list", "chats": db.get_user_chats(username)}).encode() + b'\n')
+                await writer.drain()
 
-            # --- СОЗДАНИЕ ЛИЧКИ (ДИАЛОГА) ---
             elif action == "create_dialog":
                 target = data.get("target")
                 if not db.user_exists(target):
-                    await send_to_user(username, {"action": "error", "msg": f"Пользователь {target} не найден."})
+                    writer.write(
+                        json.dumps({"action": "error", "msg": f"Пользователь {target} не найден."}).encode() + b'\n')
+                    await writer.drain()
                     continue
-
                 chat_id = db.get_or_create_dialog(username, target)
-                await send_to_user(username, {
-                    "action": "dialog_created",
-                    "target": target,
-                    "chat_id": chat_id
-                })
+                writer.write(
+                    json.dumps({"action": "dialog_created", "target": target, "chat_id": chat_id}).encode() + b'\n')
+                await writer.drain()
 
-    except json.JSONDecodeError:
-        pass  # Игнорируем битые пакеты
-    except ConnectionResetError:
+    except Exception:
         pass
-    except Exception as e:
-        print(f"Ошибка клиента {username}: {e}")
     finally:
-        if username and clients.get(username) == writer:
-            del clients[username]
-            print(f"[{username}] отключился.")
+        if username and username in clients:
+            if writer in clients[username]: clients[username].remove(writer)
+            if not clients[username]: del clients[username]
         writer.close()
 
 
 async def start_server(host, port):
     db.init_db()
-    server = await asyncio.start_server(handle_client, host, port)
+    # 50 Мегабайт лимит размера пакета (чтобы влезали фото и документы)
+    server = await asyncio.start_server(handle_client, host, port, limit=1024 * 1024 * 50)
     print(f"🚀 Сервер запущен на {host}:{port}")
     async with server:
         await server.serve_forever()
@@ -135,16 +173,16 @@ async def start_server(host, port):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Messenger Server")
-    parser.add_argument('--add-user', nargs=2, metavar=('LOGIN', 'PASS'), help="Создать учетку")
     parser.add_argument('--run', action='store_true', help="Запустить сервер")
-    parser.add_argument('--port', type=int, default=8888, help="Порт (по умолчанию 8888)")
+    parser.add_argument('--port', type=int, default=8888, help="Порт")
 
+    # default=None, чтобы консоль не перезаписывала .env без спроса!
+    parser.add_argument('--secret', type=str, default=None, help="Код для регистрации")
     args = parser.parse_args()
 
-    if args.add_user:
-        db.init_db()
-        db.add_user(args.add_user[0], args.add_user[1])
-    elif args.run:
-        asyncio.run(start_server('0.0.0.0', args.port))
-    else:
-        parser.print_help()
+    # Если пароль передан вручную через консоль - берем его, иначе оставляем из .env
+    if args.secret:
+        SERVER_SECRET = args.secret
+
+    if args.run: asyncio.run(start_server('0.0.0.0', args.port))
+    else: parser.print_help()
