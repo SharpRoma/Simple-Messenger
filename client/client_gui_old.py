@@ -9,8 +9,6 @@ import subprocess
 from datetime import datetime
 from PIL import Image, ImageDraw
 from plyer import notification
-import pystray
-from pystray import MenuItem as item
 
 import config
 
@@ -33,7 +31,6 @@ def create_icons_if_needed():
     if not os.path.exists(unread_path):
         img = Image.open(icon_path).copy()
         d = ImageDraw.Draw(img)
-        # Рисуем красный кружок в правом верхнем углу
         d.ellipse((44, 4, 64, 24), fill=(255, 0, 0))
         img.save(unread_path)
 
@@ -65,6 +62,7 @@ class MessengerClient:
         self.page.theme_mode = ft.ThemeMode.DARK
         self.btn_class = getattr(ft, 'Button', ft.ElevatedButton)
 
+        # Перехватываем управление окном
         self.page.window.prevent_close = True
         self.page.window.on_event = self.window_event
 
@@ -74,9 +72,14 @@ class MessengerClient:
             self.page.run_task(self.connect_to_server)
 
     def window_event(self, e):
-        """Перехватываем события окна: закрытие и получение фокуса"""
+        """Платформозависимое поведение окна"""
         if e.data == "close":
-            self.page.window.visible = False
+            if platform.system() == "Darwin":
+                # На macOS просто сворачиваем окно (Native behavior)
+                self.page.window.minimized = True
+            else:
+                # На Windows прячем для трея
+                self.page.window.visible = False
             self.page.update()
         elif e.data in ["focus", "restore"]:
             self.clear_badge()
@@ -84,7 +87,7 @@ class MessengerClient:
     def clear_badge(self, e=None):
         """Сбрасывает красный кружок уведомления"""
         global tray_icon
-        if tray_icon:
+        if tray_icon and platform.system() != "Darwin":
             try:
                 tray_icon.icon = Image.open("assets/icon.png")
             except:
@@ -141,7 +144,7 @@ class MessengerClient:
                                      on_change=on_autostart_change)
         notify_switch = ft.Switch(label="Уведомлять при открытом чате", value=self.settings.get("notify_always", False),
                                   on_change=on_notify_change)
-        logout_btn = ft.ElevatedButton("Выйти", color=ft.Colors.RED, on_click=on_logout)
+        logout_btn = ft.ElevatedButton("Выйти из аккаунта", color=ft.Colors.RED, on_click=on_logout)
 
         dlg = ft.AlertDialog(
             title=ft.Text("Настройки", weight="bold"),
@@ -184,7 +187,7 @@ class MessengerClient:
                 async def handler(e):
                     self.close_dialog(dlg)
                     self.active_chat_id = chat_id
-                    self.clear_badge()  # Сбрасываем кружок при смене чата
+                    self.clear_badge()
                     await self._send_json({"action": "get_history", "chat_id": chat_id, "limit": 20})
 
                 return handler
@@ -223,7 +226,7 @@ class MessengerClient:
             hint_text="Написать сообщение...",
             expand=True,
             on_submit=self.send_message_ui,
-            on_focus=self.clear_badge  # Сбрасываем кружок при клике на ввод
+            on_focus=self.clear_badge
         )
         self.pin_btn = ft.IconButton(icon=ft.Icons.PUSH_PIN, icon_color=ft.Colors.WHITE54, tooltip="Поверх всех окон",
                                      on_click=self.toggle_pin)
@@ -340,7 +343,8 @@ class MessengerClient:
                     text = msg['text']
 
                     is_active_chat = (chat_id == self.active_chat_id)
-                    is_window_hidden = not getattr(self.page.window, "visible", True)
+                    is_window_hidden = getattr(self.page.window, "minimized", False) or not getattr(self.page.window,
+                                                                                                    "visible", True)
                     my_username = self.settings.get("username")
 
                     if is_active_chat:
@@ -348,11 +352,10 @@ class MessengerClient:
                     else:
                         self.print_to_console(f"[🔔] Новое сообщение в чате '{cname}'", ft.Colors.YELLOW)
 
-                    # Проверяем, что отправитель - НЕ мы сами
                     if sender != my_username:
                         if is_window_hidden or not is_active_chat or self.settings.get("notify_always"):
                             self.show_notification(f"Чат: {cname}", f"{sender}: {text}")
-                            if tray_icon:
+                            if platform.system() != "Darwin" and tray_icon:
                                 try:
                                     tray_icon.icon = Image.open("assets/icon_unread.png")
                                 except:
@@ -417,23 +420,21 @@ class MessengerClient:
             await self.writer.drain()
 
 
-# --- ИНТЕГРАЦИЯ PYSTRAY ---
+# --- ИНТЕГРАЦИЯ PYSTRAY (ТОЛЬКО ДЛЯ WINDOWS/LINUX) ---
 def restore_window(icon, item_):
     global flet_page, tray_icon
-    if flet_page:
-        flet_page.window.visible = True
-        flet_page.window.minimized = False
-        try:
-            flet_page.window.focus()
-            if hasattr(flet_page.window, "to_front"):
-                flet_page.window.to_front()
-        except:
-            pass
-        flet_page.update()
-
     if tray_icon:
         try:
             tray_icon.icon = Image.open("assets/icon.png")
+        except:
+            pass
+
+    if flet_page:
+        flet_page.window.visible = True
+        flet_page.window.minimized = False
+        flet_page.update()
+        try:
+            flet_page.window.focus()
         except:
             pass
 
@@ -444,6 +445,8 @@ def quit_app(icon, item_):
 
 
 def start_tray():
+    import pystray
+    from pystray import MenuItem as item
     global tray_icon
     image = Image.open("assets/icon.png")
     menu = pystray.Menu(
@@ -459,20 +462,12 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    import signal
+    # На Windows/Linux запускаем pystray в фоновом потоке
+    if platform.system() != "Darwin":
+        threading.Thread(target=start_tray, daemon=True).start()
 
-
-    def run_flet():
-        original_signal = signal.signal
-        signal.signal = lambda sig, handler: None
-        try:
-            if hasattr(ft, 'run'):
-                ft.run(main, assets_dir="assets")
-            else:
-                ft.app(main, assets_dir="assets")
-        finally:
-            signal.signal = original_signal
-
-
-    threading.Thread(target=run_flet, daemon=True).start()
-    start_tray()
+    # Flet ВСЕГДА запускается в главном потоке (сохраняем Ctrl+C и работоспособность интерфейса)
+    if hasattr(ft, 'run'):
+        ft.run(main, assets_dir="assets")
+    else:
+        ft.app(main, assets_dir="assets")
