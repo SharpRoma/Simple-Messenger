@@ -15,5 +15,5 @@ RUN chmod +x entrypoint.sh
 
 EXPOSE 8888
 
-# Запускаем через наш умный скрипт
+# Запускаем через скрипт
 CMD ["./entrypoint.sh"]

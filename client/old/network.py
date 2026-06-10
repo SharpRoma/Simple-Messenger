@@ -1,7 +1,7 @@
 import asyncio
 import json
-import ssl
-import traceback
+import ssl  # <--- БИБЛИОТЕКА ДЛЯ ШИФРОВАНИЯ
+
 
 class MessengerNetwork:
     def __init__(self, on_message_received, on_disconnected):
@@ -12,10 +12,13 @@ class MessengerNetwork:
 
     async def connect(self, host, port, username, password, mode="login", secret=""):
         try:
+            # --- НАСТРОЙКА SSL ДЛЯ КЛИЕНТА ---
             ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            # Отключаем строгую проверку домена (т.к. у нас самоподписанный сертификат по IP)
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
 
+            # Передаем ssl=ssl_context при подключении
             self.reader, self.writer = await asyncio.open_connection(
                 host, port,
                 ssl=ssl_context,
@@ -45,10 +48,7 @@ class MessengerNetwork:
                     await self.on_disconnected()
                     break
                 await self.on_message_received(json.loads(line.decode().strip()))
-        except Exception as e:
-            # ТЕПЕРЬ ОШИБКИ НЕ БУДУТ СКРЫВАТЬСЯ!
-            print("\n--- КРИТИЧЕСКАЯ ОШИБКА В СЕТЕВОМ ПОТОКЕ ---")
-            traceback.print_exc()
+        except Exception:
             await self.on_disconnected()
 
     async def disconnect(self):
