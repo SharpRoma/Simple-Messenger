@@ -4,3 +4,4 @@ flet
 plyer
 pystray
 Pillow
+flet
