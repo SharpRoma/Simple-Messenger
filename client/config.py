@@ -2,14 +2,18 @@ import os
 import sys
 import json
 import platform
+import shutil
 from pathlib import Path
 
-# Импорты для генерации иконок и безопасного хранения паролей
 from PIL import Image, ImageDraw
 import keyring
 
+# --- ПУТИ ПРОЕКТА ---
+BASE_DIR = Path(__file__).parent
+LOCAL_ASSETS_DIR = BASE_DIR / "assets"
 
-# --- УМНЫЕ ПУТИ ДЛЯ ОС ---
+
+# --- УМНЫЕ ПУТИ ДЛЯ ОС (Где храним данные) ---
 def get_app_data_dir() -> Path:
     system = platform.system()
     if system == "Windows":
@@ -35,29 +39,48 @@ ICO_PATH = ASSETS_DIR / "icon.ico"
 
 # --- АВТОГЕНЕРАЦИЯ ИКОНОК ---
 def create_icons_if_needed():
-    """Создает базовые иконки приложения, если их еще нет"""
-    if not ICON_PATH.exists():
+    """Создает базовые иконки или копирует кастомную из папки проекта"""
+    custom_icon = LOCAL_ASSETS_DIR / "icon.png"
+
+    # 1. Если у нас в проекте есть кастомная иконка, всегда копируем её в систему
+    if custom_icon.exists():
+        shutil.copy(custom_icon, ICON_PATH)
+    # 2. Если кастомной нет и в системе пусто — рисуем заглушку "MSG"
+    elif not ICON_PATH.exists():
         img = Image.new('RGBA', (64, 64), color=(0, 0, 0, 0))
         d = ImageDraw.Draw(img)
         d.rounded_rectangle((4, 4, 60, 60), radius=12, fill=(43, 43, 43))
         d.text((16, 24), "MSG", fill=(255, 255, 255))
         img.save(ICON_PATH)
 
-    if not UNREAD_ICON_PATH.exists():
-        img = Image.open(ICON_PATH).copy()
-        ImageDraw.Draw(img).ellipse((44, 4, 64, 24), fill=(255, 0, 0))
-        img.save(UNREAD_ICON_PATH)
+    # 3. Генерируем "непрочитанную" иконку динамически!
+    try:
+        img = Image.open(ICON_PATH).convert("RGBA")
+        unread_img = img.copy()
+        d = ImageDraw.Draw(unread_img)
 
-    # Формат .ico для уведомлений Центра Windows
-    if not ICO_PATH.exists():
-        img = Image.open(ICON_PATH)
-        img.save(ICO_PATH, format="ICO", sizes=[(64, 64)])
+        # Получаем размер картинки, чтобы кружок был пропорциональным
+        w, h = unread_img.size
+        # Рисуем красивый красный кружок в правом верхнем углу (с белой обводкой)
+        d.ellipse(
+            (w * 0.65, h * 0.05, w * 0.95, h * 0.35),
+            fill=(255, 0, 0),
+            outline=(255, 255, 255),
+            width=max(1, int(w * 0.02))
+        )
+        unread_img.save(UNREAD_ICON_PATH)
+
+        # 4. Формат .ico для уведомлений Центра Windows
+        img.save(ICO_PATH, format="ICO", sizes=[(64, 64), (128, 128), (256, 256)])
+    except Exception as e:
+        print(f"Ошибка при обработке иконок: {e}")
 
 
 # --- НАСТРОЙКИ И БЕЗОПАСНОСТЬ ---
 def load_settings():
     default_settings = {
         "host": "",
+        "port": "8888",
         "username": "",
         "password": "",
         "auto_login": False,
@@ -65,7 +88,6 @@ def load_settings():
         "notify_always": True
     }
 
-    # 1. Читаем безопасные настройки (без пароля)
     if SETTINGS_FILE.exists():
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -73,41 +95,34 @@ def load_settings():
         except Exception as e:
             print(f"Ошибка чтения настроек: {e}")
 
-    # 2. Безопасно достаем пароль из хранилища ОС
     if default_settings.get("auto_login") and default_settings.get("username"):
         try:
             saved_password = keyring.get_password("SimpleMessenger", default_settings["username"])
             if saved_password:
                 default_settings["password"] = saved_password
         except Exception as e:
-            print(f"Ошибка чтения хранилища ключей: {e}")
+            pass
 
     return default_settings
 
 
 def save_settings(settings):
-    # Копируем словарь, чтобы не удалить пароль из оперативной памяти программы
     to_save = settings.copy()
-
-    # Вытаскиваем пароль — его НЕЛЬЗЯ писать в json!
     password = to_save.pop("password", "")
     username = to_save.get("username", "")
     auto_login = to_save.get("auto_login", False)
 
-    # 1. Сохраняем обычные настройки
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(to_save, f, indent=4)
 
-    # 2. Управляем паролем в защищенном хранилище ОС
     try:
         if auto_login and username and password:
             keyring.set_password("SimpleMessenger", username, password)
         elif not auto_login and username:
-            # Если юзер выключил автологин, стираем пароль из системы
             try:
                 keyring.delete_password("SimpleMessenger", username)
             except keyring.errors.PasswordDeleteError:
-                pass  # Пароля там и не было, всё ок
+                pass
     except Exception as e:
         print(f"Ошибка записи в хранилище ключей: {e}")
 
@@ -121,7 +136,7 @@ def set_autostart(enable: bool):
         elif system == "Darwin":
             _set_autostart_mac(enable)
     except Exception as e:
-        print(f"Ошибка автозапуска: {e}")
+        pass
 
 
 def _set_autostart_win(enable: bool):

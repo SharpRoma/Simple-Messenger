@@ -88,9 +88,10 @@ class MainWindow:
         )
         self.page.add(self.chat_screen)
 
-    def handle_login(self, host, username, password, auto_login):
+    def handle_login(self, host, port, username, password, auto_login):
         async def login_task():
-            response = await self.network.connect(host, 8888, username, password)
+            # Обязательно переводим порт в int() !
+            response = await self.network.connect(host, int(port), username, password)
 
             if response.get("status") != "ok":
                 self.login_screen.show_error(f"Ошибка: {response.get('msg')}")
@@ -99,12 +100,14 @@ class MainWindow:
             self.current_username = username
             self.settings.update({
                 "host": host,
+                "port": port,
                 "username": username,
                 "password": password if auto_login else "",
                 "auto_login": auto_login
             })
             self.settings_manager.save_settings(self.settings)
 
+            self.is_logged_in = True
             self.page.title = f"Simple Messenger ({self.current_username})"
 
             self.show_chat_screen()
@@ -118,6 +121,7 @@ class MainWindow:
     def auto_connect(self):
         self.handle_login(
             self.settings.get("host"),
+            self.settings.get("port"),
             self.settings.get("username"),
             self.settings.get("password"),
             True
@@ -156,21 +160,23 @@ class MainWindow:
 
     def show_register_modal(self):
         current_host = self.login_screen.host_input.value.strip()
+        current_port = self.login_screen.port_input.value.strip()
 
-        async def on_register(host, username, password, secret):
-            response = await self.network.connect(host, 8888, username, password, mode="register", secret=secret)
+        async def on_register(host, port, username, password, secret):
+            response = await self.network.connect(host, port, username, password, mode="register", secret=secret)
             if response.get("status") != "ok":
                 return False, response.get('msg', 'Неизвестная ошибка')
 
             self.login_screen.host_input.value = host
+            self.login_screen.port_input.value = port
             self.login_screen.user_input.value = username
             self.login_screen.pass_input.value = password
             self.page.update()
 
-            self.handle_login(host, username, password, self.login_screen.auto_login_checkbox.value)
+            self.handle_login(host, port, username, password, self.login_screen.auto_login_checkbox.value)
             return True, ""
 
-        dialog = RegisterDialog(self.page, current_host, on_register)
+        dialog = RegisterDialog(self.page, current_host, current_port, on_register)
         dialog.show()
 
     def show_pm_modal(self):

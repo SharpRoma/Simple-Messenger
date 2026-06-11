@@ -18,36 +18,39 @@ class LoginScreen(ft.Container):
         self._build_ui()
 
     def _build_ui(self):
-        # 1. ДОБАВИЛИ ФИЛЬТР В ПОЛЕ IP
+        # 1. Поле IP (теперь оно expand=True, чтобы занять всё доступное место)
         self.host_input = ft.TextField(
             label="IP сервера",
             value=self.settings.get("host"),
-            width=300,
+            expand=True,
             input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9\.]", replacement_string=""),
+            on_submit=lambda e: self.port_input.focus()
+        )
+
+        # 2. НОВОЕ Поле порта (только цифры)
+        self.port_input = ft.TextField(
+            label="Порт",
+            value=str(self.settings.get("port", "8888")),
+            width=80,
+            input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string=""),
             on_submit=lambda e: self.user_input.focus()
         )
+
+        # 3. Объединяем их в один ряд шириной 300
+        server_row = ft.Row([self.host_input, self.port_input], width=300)
+
         self.user_input = ft.TextField(
-            label="Логин",
-            value=self.settings.get("username"),
-            width=300,
+            label="Логин", value=self.settings.get("username"), width=300,
             on_submit=lambda e: self.pass_input.focus()
         )
         self.pass_input = ft.TextField(
-            label="Пароль",
-            password=True,
-            can_reveal_password=True,  # <--- Добавили вот эту строчку!
-            value=self.settings.get("password"),
-            width=300,
+            label="Пароль", password=True, can_reveal_password=True,
+            value=self.settings.get("password"), width=300,
             on_submit=self._submit_login
         )
-        self.auto_login_checkbox = ft.Checkbox(
-            label="Входить автоматически",
-            value=self.settings.get("auto_login")
-        )
 
-        # 2. ЗАВЕРНУЛИ ЧЕКБОКС В РЯД ШИРИНОЙ 300 (чтобы выровнять по левому краю полей)
+        self.auto_login_checkbox = ft.Checkbox(label="Входить автоматически", value=self.settings.get("auto_login"))
         checkbox_row = ft.Row([self.auto_login_checkbox], width=300)
-
         self.status_text = ft.Text(color=ft.Colors.RED)
 
         btn_class = getattr(ft, 'Button', ft.ElevatedButton)
@@ -55,10 +58,10 @@ class LoginScreen(ft.Container):
         self.content = ft.Column(
             controls=[
                 ft.Text("Messenger", size=24, weight="bold"),
-                self.host_input,
+                server_row,  # <--- ТЕПЕРЬ ТУТ РЯД (IP + Порт)
                 self.user_input,
                 self.pass_input,
-                checkbox_row,  # <--- ТЕПЕРЬ ЗДЕСЬ РЯД
+                checkbox_row,
                 self.status_text,
                 ft.Row(
                     controls=[
@@ -86,14 +89,15 @@ class LoginScreen(ft.Container):
     # --- Внутренняя логика ---
     def _submit_login(self, e):
         host = self.host_input.value.strip()
+        port = self.port_input.value.strip() # <--- Читаем порт
         username = self.user_input.value.strip()
         password = self.pass_input.value.strip()
         auto_login = self.auto_login_checkbox.value
 
-        if not host or not username or not password:
+        if not host or not port or not username or not password:
             self.show_error("Заполните все поля!")
             return
 
         self.show_loading()
-        # Вызываем функцию извне (передаем данные наверх)
-        self.on_login_callback(host, username, password, auto_login)
+        # Передаем порт наверх
+        self.on_login_callback(host, port, username, password, auto_login)
