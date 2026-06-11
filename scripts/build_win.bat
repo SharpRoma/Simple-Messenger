@@ -29,6 +29,7 @@ echo Удаление старых сборок...
 if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
 if exist "*.spec" del /q "*.spec"
+if exist "*.ico" del /q "*.ico"
 
 echo Упаковка Python-кода (flet pack)...
 flet pack client\main.py --name "SimpleMessenger" --icon "%ICON_PATH%" --product-name "Simple Messenger" --product-version "1.0.0" --copyright "Simple Messenger"
