@@ -2,7 +2,6 @@ import threading
 import os
 import pystray
 from PIL import Image
-from plyer import notification
 import flet as ft
 from .base import SystemAdapter
 
@@ -48,13 +47,9 @@ class WindowsAdapter(SystemAdapter):
 
     def notify(self, title: str, text: str):
         try:
-            notification.notify(
-                title=title,
-                message=text,
-                app_name="Simple Messenger",
-                app_icon=str(self.ico_path),
-                timeout=5
-            )
+            if self.tray_icon:
+                # Используем встроенные уведомления pystray (они привязываются к нашей иконке)
+                self.tray_icon.notify(text, title=title)
         except Exception as e:
             print(f"Win Notification Error: {e}")
 

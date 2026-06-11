@@ -5,12 +5,18 @@ from .base import SystemAdapter
 class MacOSAdapter(SystemAdapter):
     def notify(self, title: str, text: str):
         try:
-            # Экранируем кавычки для безопасности
-            safe_text = text.replace('"', '\\"').replace("'", "\\'")
-            safe_title = title.replace('"', '\\"').replace("'", "\\'")
+            # БЕЗОПАСНЫЙ ВЫЗОВ: Защита от AppleScript-инъекций.
+            # Мы не встраиваем текст в сам скрипт, а передаем его как аргументы командной строки.
+            apple_script = """
+            on run argv
+                display notification (item 1 of argv) with title "Simple Messenger" subtitle (item 2 of argv)
+            end run
+            """
+
             subprocess.run([
-                "osascript", "-e",
-                f'display notification "{safe_text}" with title "Simple Messenger" subtitle "{safe_title}"'
+                "osascript",
+                "-e", apple_script,
+                "--", text, title
             ])
         except Exception as e:
             print(f"Mac Notification Error: {e}")
