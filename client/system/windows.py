@@ -5,6 +5,7 @@ from PIL import Image
 import flet as ft
 from .base import SystemAdapter
 
+
 class WindowsAdapter(SystemAdapter):
     def __init__(self, page: ft.Page, icon_path: str, unread_icon_path: str, ico_path: str):
         super().__init__(page)
@@ -32,14 +33,27 @@ class WindowsAdapter(SystemAdapter):
         self.tray_icon.run()
 
     def _restore_window(self, icon, item_):
-        self.set_tray_badge(False)
-        self.page.window.visible = True
-        self.page.window.minimized = False
-        self.page.update()
-        try:
-            self.page.window.focus()
-        except:
-            pass
+        # Трей работает в фоне. Передаем задачу разворачивания в движок Flet!
+        async def restore_task():
+            self.set_tray_badge(False)
+
+            # Возвращаем окну видимость и убираем статус свернутого
+            self.page.window.visible = True
+            self.page.window.minimized = False
+            self.page.window.focused = True
+
+            # ТРЮК ДЛЯ WINDOWS: Дергаем окно "поверх всех", чтобы ОС точно его показала
+            was_pinned = getattr(self.page.window, "always_on_top", False)
+            self.page.window.always_on_top = True
+            self.page.update()
+
+            # И сразу возвращаем статус-кво (если пользователь не закреплял его заколкой)
+            if not was_pinned:
+                self.page.window.always_on_top = False
+                self.page.update()
+
+        # Заставляем страницу Flet выполнить это в своем потоке
+        self.page.run_task(restore_task)
 
     def _quit_app(self, icon, item_):
         self.tray_icon.stop()
@@ -48,7 +62,7 @@ class WindowsAdapter(SystemAdapter):
     def notify(self, title: str, text: str):
         try:
             if self.tray_icon:
-                # Используем встроенные уведомления pystray (они привязываются к нашей иконке)
+                # Встроенные нативные уведомления pystray (без plyer!)
                 self.tray_icon.notify(text, title=title)
         except Exception as e:
             print(f"Win Notification Error: {e}")
