@@ -56,8 +56,24 @@ class WindowsAdapter(SystemAdapter):
         self.page.run_task(restore_task)
 
     def _quit_app(self, icon, item_):
+        # 1. Останавливаем иконку трея (убираем из панели)
         self.tray_icon.stop()
-        os._exit(0)
+
+        # 2. Передаем команду на закрытие в основной поток Flet
+        async def exit_task():
+            import asyncio
+            # Даем Windows 0.2 секунды, чтобы она успела красиво скрыть всплывающее меню
+            await asyncio.sleep(0.2)
+
+            # Разрешаем окну закрыться и убиваем процесс
+            self.page.window.prevent_close = False
+            try:
+                self.page.window.destroy()
+            except Exception:
+                pass
+            os._exit(0)
+
+        self.page.run_task(exit_task)
 
     def notify(self, title: str, text: str):
         try:
