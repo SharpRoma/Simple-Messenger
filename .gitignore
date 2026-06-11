@@ -1,6 +1,6 @@
 /.venv/
 /.idea/
-/build
+/scripts
 /server/.env
 *.pem
 *.spec

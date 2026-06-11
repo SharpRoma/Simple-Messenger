@@ -13,18 +13,28 @@ def main(page: ft.Page):
     os_adapter.setup_tray()
 
     # 3. Настройка окна Flet
+    # 3. Настройка окна Flet
     page.title = "Simple Messenger"
-    page.window.prevent_close = True
 
-    # Жестко прописываем иконку для панели задач Windows
     import platform
     page.window.icon = "icon.ico" if platform.system() == "Windows" else "icon.png"
 
-    # Подключаем системные события окна (крестик, сворачивание)
-    def window_event_handler(e):
-        os_adapter.handle_window_event(e.data)
+    # ПЕРЕХВАТЫВАЕМ КРЕСТИК ТОЛЬКО НА WINDOWS (ради системного трея)
+    if platform.system() == "Windows":
+        page.window.prevent_close = True
 
-    page.window.on_event = window_event_handler
+        def window_event_handler(e):
+            # Flet 0.85+ передает тип события в e.type, старые версии в e.data
+            event_str = ""
+            if hasattr(e, "type") and hasattr(e.type, "name"):
+                event_str = e.type.name.lower()  # Вернет "close", "focus" и т.д.
+            elif isinstance(e.data, str):
+                event_str = e.data.lower()
+
+            os_adapter.handle_window_event(event_str)
+
+        page.window.on_event = window_event_handler
+        page.update()
 
     # 4. Запуск главного контроллера интерфейса
     # В качестве settings_manager мы пока передадим сам модуль config

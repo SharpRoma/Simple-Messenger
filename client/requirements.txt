@@ -2,3 +2,4 @@ flet==0.85.3
 pystray==0.19.5
 pillow==12.2.0
 keyring==25.7.0
+pyinstaller==6.20.0
