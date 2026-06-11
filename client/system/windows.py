@@ -59,14 +59,23 @@ class WindowsAdapter(SystemAdapter):
         # 1. Убираем иконку из трея
         self.tray_icon.stop()
 
-        # 2. Мягко просим Flet закрыть окно (нативно)
+        # 2. Надежно убиваем интерфейс и процесс
         async def exit_task():
-            # Отключаем защиту от закрытия
-            self.page.window.prevent_close = False
-            # Говорим интерфейсу штатно закрыться
-            self.page.window.close()
+            import asyncio
+            import os
 
-        self.page.run_task(exit_task)
+            # Снимаем защиту и ОБЯЗАТЕЛЬНО обновляем страницу
+            self.page.window.prevent_close = False
+            self.page.update()
+
+            # Принудительно разрушаем графическое окно (чтобы не было "Working...")
+            self.page.window.destroy()
+
+            # Ждем 0.1 сек, чтобы движок Flet успел закрыть окно
+            await asyncio.sleep(0.1)
+
+            # Надежно убиваем Python, чтобы сетевые потоки не остались висеть в диспетчере задач
+            os._exit(0)
 
         self.page.run_task(exit_task)
 
