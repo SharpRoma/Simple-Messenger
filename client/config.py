@@ -38,40 +38,66 @@ ICO_PATH = ASSETS_DIR / "icon.ico"
 
 
 # --- АВТОГЕНЕРАЦИЯ ИКОНОК ---
+# --- АВТОГЕНЕРАЦИЯ ИКОНОК ---
 def create_icons_if_needed():
-    """Создает базовые иконки или копирует кастомную из папки проекта"""
+    """Создает базовые иконки или делает круглую кастомную из папки проекта"""
     custom_icon = LOCAL_ASSETS_DIR / "icon.png"
 
-    # 1. Если у нас в проекте есть кастомная иконка, всегда копируем её в систему
-    if custom_icon.exists():
-        shutil.copy(custom_icon, ICON_PATH)
-    # 2. Если кастомной нет и в системе пусто — рисуем заглушку "MSG"
-    elif not ICON_PATH.exists():
-        img = Image.new('RGBA', (64, 64), color=(0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
-        d.rounded_rectangle((4, 4, 60, 60), radius=12, fill=(43, 43, 43))
-        d.text((16, 24), "MSG", fill=(255, 255, 255))
-        img.save(ICON_PATH)
-
-    # 3. Генерируем "непрочитанную" иконку динамически!
     try:
-        img = Image.open(ICON_PATH).convert("RGBA")
-        unread_img = img.copy()
-        d = ImageDraw.Draw(unread_img)
+        # 1. Если есть картинка в проекте — делаем из нее круг
+        if custom_icon.exists():
+            img = Image.open(custom_icon).convert("RGBA")
 
-        # Получаем размер картинки, чтобы кружок был пропорциональным
-        w, h = unread_img.size
-        # Рисуем красивый красный кружок в правом верхнем углу (с белой обводкой)
-        d.ellipse(
-            (w * 0.65, h * 0.05, w * 0.95, h * 0.35),
-            fill=(255, 0, 0),
-            outline=(255, 255, 255),
-            width=max(1, int(w * 0.02))
-        )
-        unread_img.save(UNREAD_ICON_PATH)
+            # Делаем из нее ровный квадрат (обрезаем по центру, если она прямоугольная)
+            w, h = img.size
+            min_dim = min(w, h)
+            left = (w - min_dim) / 2
+            top = (h - min_dim) / 2
+            right = (w + min_dim) / 2
+            bottom = (h + min_dim) / 2
+            img = img.crop((left, top, right, bottom))
 
-        # 4. Формат .ico для уведомлений Центра Windows
-        img.save(ICO_PATH, format="ICO", sizes=[(64, 64), (128, 128), (256, 256)])
+            # Создаем идеально круглую маску
+            mask = Image.new("L", img.size, 0)
+            draw = ImageDraw.Draw(mask)
+            draw.ellipse((0, 0, img.size[0], img.size[1]), fill=255)
+
+            # Применяем маску к картинке (края становятся прозрачными)
+            circular_img = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            circular_img.paste(img, (0, 0), mask=mask)
+            circular_img.save(ICON_PATH)
+
+        # 2. Если кастомной нет и в системе пусто — рисуем серую круглую заглушку
+        elif not ICON_PATH.exists():
+            img = Image.new('RGBA', (64, 64), color=(0, 0, 0, 0))
+            d = ImageDraw.Draw(img)
+            d.ellipse((4, 4, 60, 60), fill=(43, 43, 43))
+            d.text((16, 24), "MSG", fill=(255, 255, 255))
+            img.save(ICON_PATH)
+
+        # 3. Рисуем ОГРОМНЫЙ кружок непрочитанных сообщений
+        if ICON_PATH.exists():
+            img = Image.open(ICON_PATH).convert("RGBA")
+            unread_img = img.copy()
+            d = ImageDraw.Draw(unread_img)
+
+            w, h = unread_img.size
+
+            # Координаты бейджика (x1, y1, x2, y2).
+            # Теперь он занимает почти 50% от ширины всей иконки!
+            badge_bbox = (w * 0.50, h * 0.02, w * 0.98, h * 0.50)
+
+            # Рисуем красный круг с более толстой белой обводкой
+            d.ellipse(
+                badge_bbox,
+                fill=(255, 0, 0),
+                outline=(255, 255, 255),
+                width=max(2, int(w * 0.04))
+            )
+            unread_img.save(UNREAD_ICON_PATH)
+
+            # 4. Формат .ico для уведомлений Центра Windows
+            img.save(ICO_PATH, format="ICO", sizes=[(64, 64), (128, 128), (256, 256)])
     except Exception as e:
         print(f"Ошибка при обработке иконок: {e}")
 
