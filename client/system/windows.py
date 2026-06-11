@@ -75,7 +75,7 @@ class WindowsAdapter(SystemAdapter):
 
             # Нативно просим окно закрыться.
             # Flet сам всё потушит и чисто завершит Python-процесс
-            self.page.window.close()
+            await self.page.window.close()
 
         self.page.run_task(exit_task)
 
