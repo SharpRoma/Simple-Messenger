@@ -57,6 +57,13 @@ class MainWindow:
         self.page.clean()
         self.page.drawer = None
         self.is_logged_in = False
+
+        # --- Чистим кэш прошлого аккаунта ---
+        self.current_username = ""
+        self.active_chat_id = 1
+        self.chats_info = {}
+        self.pending_downloads = {}
+
         self.login_screen = LoginScreen(
             settings=self.settings,
             on_login_callback=self.handle_login,
