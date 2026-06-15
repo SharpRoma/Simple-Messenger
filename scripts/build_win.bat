@@ -52,13 +52,14 @@ if exist %ISCC_PATH% (
     :: Передаем версию в .iss файл через параметр /DAppVersion
     %ISCC_PATH% /DAppVersion="%APP_VERSION%" scripts\installer.iss > nul
     echo Установщик успешно создан!
+    echo Удаление исходного .exe файла...
+    if exist "dist\SimpleMessenger.exe" del /q "dist\SimpleMessenger.exe"
 ) else (
     echo ВНИМАНИЕ: Inno Setup 6 не найден!
 )
 
 :: ФИНАЛЬНАЯ УБОРКА МУСОРА
 if exist "build" rmdir /s /q "build"
-if exist "dist" rmdir /s /q "dist"
 if exist "*.spec" del /q "*.spec"
 if exist "*.ico" del /q "*.ico"
 

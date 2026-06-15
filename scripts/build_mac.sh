@@ -29,7 +29,7 @@ FINAL_APP_PATH="../dist/SimpleMessenger.app"
 
 if [ -n "$APP_PATH" ]; then
     echo "Копирование приложения..."
-    cp -r "$APP_PATH" "$FINAL_APP_PATH"
+    ditto "$APP_PATH" "$FINAL_APP_PATH"
 
     # Жестко прописываем версию в Info.plist (чтобы macOS знала, какая это версия)
     # Это включит нативную защиту Finder от установки старых версий поверх новых
