@@ -30,6 +30,7 @@ echo Удаление старых сборок...
 if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
 if exist "*.spec" del /q "*.spec"
+if exist "*.ico" del /q "*.spec"
 
 echo Упаковка Python-кода (flet pack)...
 :: Подставляем переменную %APP_VERSION% в метаданные exe!
