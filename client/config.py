@@ -56,6 +56,10 @@ def create_icons_if_needed():
     if not need_update and ICON_PATH.exists():
         return  # Иконки актуальны, ничего не делаем
 
+    if need_update:
+        for p in [ICON_PATH, UNREAD_ICON_PATH, ICO_PATH]:
+            if p.exists(): p.unlink()
+
     try:
         # 1. Делаем круглую иконку из исходников
         if custom_icon.exists():

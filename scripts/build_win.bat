@@ -34,7 +34,7 @@ if exist "*.ico" del /q "*.ico"
 
 echo Упаковка Python-кода (flet pack)...
 :: Подставляем переменную %APP_VERSION% в метаданные exe!
-flet pack client\main.py --name "SimpleMessenger" --icon "%ICON_PATH%" --product-name "Simple Messenger" --product-version "%APP_VERSION%" --copyright "Simple Messenger"
+flet pack client\main.py --name "SimpleMessenger" --icon "%ICON_PATH%" --product-name "Simple Messenger" --product-version "%APP_VERSION%" --copyright "Simple Messenger" --add-data "client\assets;assets"
 
 if not exist "dist\SimpleMessenger.exe" (
     echo ОШИБКА СБОРКИ: Файл SimpleMessenger.exe не был создан.
