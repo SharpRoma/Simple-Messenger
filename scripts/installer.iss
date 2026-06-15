@@ -1,37 +1,53 @@
 [Setup]
-; Базовые настройки приложения
+; Уникальный ID приложения, чтобы Windows правильно его обновлял
+AppId=SimpleMessenger
 AppName=Simple Messenger
-AppVersion=1.1.0
+
+; Версия подтягивается из скрипта сборки
+AppVersion={#AppVersion}
 AppPublisher=Simple Messenger
 DefaultDirName={autopf}\Simple Messenger
 DefaultGroupName=Simple Messenger
 
-; Иконка для самого установщика (Setup.exe)
 SetupIconFile=..\client\assets\icon.ico
-
-; Куда положить готовый установщик и как его назвать
 OutputDir=..\dist
-OutputBaseFilename=SimpleMessenger_Setup
 
-; Сжатие (делает файл установщика минимального размера)
+; Установщик будет с версией: SimpleMessenger_Setup_v1.1.0.exe
+OutputBaseFilename=SimpleMessenger_Setup_v{#AppVersion}
+
 Compression=lzma2
 SolidCompression=yes
-
-; Права администратора (чтобы установить в Program Files)
 PrivilegesRequired=admin
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; Берем наш скомпилированный exe и кладем в папку установки
 Source: "..\dist\SimpleMessenger.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-; Создаем ярлыки в меню Пуск и на Рабочем столе
 Name: "{group}\Simple Messenger"; Filename: "{app}\SimpleMessenger.exe"
 Name: "{commondesktop}\Simple Messenger"; Filename: "{app}\SimpleMessenger.exe"; Tasks: desktopicon
 
 [Run]
-; Предлагаем запустить мессенджер после завершения установки
 Filename: "{app}\SimpleMessenger.exe"; Description: "{cm:LaunchProgram,Simple Messenger}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// Функция вызывается ДО появления первого окна установщика
+function InitializeSetup(): Boolean;
+var
+  OldVersion: String;
+begin
+  Result := True;
+
+  // Ищем в реестре Windows прошлую установленную версию
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\SimpleMessenger_is1', 'DisplayVersion', OldVersion) then
+  begin
+    // Сравниваем старую версию с той, которую пытаемся установить
+    if CompareStr(OldVersion, '{#AppVersion}') > 0 then
+    begin
+      MsgBox('На вашем компьютере уже установлена более новая версия (' + OldVersion + ').' + #13#10 + 'Установка устаревшей версии (' + '{#AppVersion}' + ') отменена.', mbError, MB_OK);
+      Result := False; // Прерываем установку
+    end;
+  end;
+end;
