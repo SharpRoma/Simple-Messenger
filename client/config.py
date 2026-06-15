@@ -10,7 +10,7 @@ import keyring
 
 
 # --- ВЕРСИЯ ПРИЛОЖЕНИЯ ---
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 
 
 # --- УМНЫЕ ПУТИ ДЛЯ PYINSTALLER ---
