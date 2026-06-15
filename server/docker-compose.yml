@@ -14,11 +14,11 @@ services:
       - "5432:5432"
 
   server:
-    build: .
-    container_name: messenger_server
+    image: ghcr.io/sharproma/simple-messenger/server:1.2
+    container_name: messenger_server_v2
     restart: always
     ports:
-      - "1234:8888"
+      - "8989:8888"
     depends_on:
       - db
     # Сервер тоже читает переменные из .env
