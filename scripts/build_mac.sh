@@ -38,7 +38,7 @@ if [ -n "$APP_PATH" ]; then
 
     # --- СОЗДАНИЕ УСТАНОВОЧНОГО ОБРАЗА (.DMG) ---
     echo "Создание установочного образа (.dmg)..."
-    DMG_NAME="../dist/SimpleMessenger_v${APP_VERSION}.dmg"
+    DMG_NAME="../dist/SimpleMessenger_Setup_v${APP_VERSION}.dmg"
 
     # Используем встроенную в macOS утилиту hdiutil (без сторонних программ!)
     hdiutil create -volname "Simple Messenger" -srcfolder "$FINAL_APP_PATH" -ov -format UDZO "$DMG_NAME" > /dev/null
