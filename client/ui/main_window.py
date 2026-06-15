@@ -222,25 +222,20 @@ class MainWindow:
     def handle_attach_file(self):
         async def pick_task():
             try:
-                # ВОТ ОНО! Никаких overlay. FilePicker вызывается напрямую.
                 files = await ft.FilePicker().pick_files(allow_multiple=False)
-
-                if not files:
-                    return
-
+                if not files: return
                 f = files[0]
-                with open(f.path, "rb") as file:
-                    b64 = base64.b64encode(file.read()).decode('utf-8')
 
                 self.show_snackbar(f"Отправка файла {f.name}...")
+
+                # БОЛЬШЕ НЕТ BASE64! Передаем просто f.path
                 await self.network.send({
                     "action": "send_file",
                     "chat_id": self.active_chat_id,
                     "filename": f.name,
-                    "data": b64
+                    "filepath": f.path  # <--- ВОТ ТУТ
                 })
             except Exception as ex:
-                print(f"Ошибка выбора файла: {ex}")
                 self.show_snackbar("Ошибка при чтении файла!")
 
         self.page.run_task(pick_task)
@@ -248,17 +243,17 @@ class MainWindow:
     def handle_download_file(self, msg_id, filename):
         async def download_task():
             try:
-                # Прямой вызов диалога сохранения!
                 path = await ft.FilePicker().save_file(file_name=filename)
-
                 if path:
-                    self.pending_downloads[msg_id] = path
                     self.show_snackbar("Скачивание файла...")
-                    await self.network.send({"action": "req_file", "msg_id": msg_id})
+                    # Передаем путь сохранения прямо в сеть!
+                    await self.network.send({
+                        "action": "req_file",
+                        "msg_id": msg_id,
+                        "save_path": path  # <--- ВОТ ТУТ
+                    })
             except Exception as e:
-                print(f"Ошибка сохранения: {e}")
                 self.show_snackbar("Ошибка сохранения файла!")
-
         self.page.run_task(download_task)
 
     def handle_delete_message(self, msg_id):
@@ -333,13 +328,12 @@ class MainWindow:
                 self.chats_info[c['id']] = c
             self.update_drawer()
 
+
         elif action == "history":
             self.chat_screen.clear_messages()
             messages, chat_id = data.get("messages", []), data.get("chat_id")
-            chat_data = self.chats_info.get(chat_id, {})
-            cname = self.get_chat_name(chat_data) if chat_data else f"ID:{chat_id}"
+            cname = self.chats_info.get(chat_id, {}).get("name", f"ID:{chat_id}")
             self.chat_screen.set_chat_title(cname)
-
             for msg in messages:
                 self.chat_screen.add_message(
                     sender=msg['sender'],
@@ -349,18 +343,14 @@ class MainWindow:
                     file_name=msg.get('file_name')
                 )
 
-        # --- ВОССТАНОВЛЕНА ФУНКЦИЯ СОХРАНЕНИЯ ФАЙЛОВ ---
-        elif action == "res_file":
-            msg_id, b64_data, filename = data.get("msg_id"), data.get("data"), data.get("filename")
-            save_path = self.pending_downloads.pop(msg_id, None)
-
-            if save_path and b64_data:
-                try:
-                    with open(save_path, "wb") as f:
-                        f.write(base64.b64decode(b64_data))
-                    self.os.notify("Файл сохранен!", f"{filename} успешно скачан.")
-                except Exception as e:
-                    print(f"Ошибка сохранения файла: {e}")
+            # --- ДОБАВЛЕНО: Уведомление о сохранении файла ---
+        elif action == "file_saved":
+            filepath = data.get("filepath")
+            if filepath:
+                # Окошко внутри мессенджера
+                self.show_snackbar("Файл успешно скачан!")
+                # Системное уведомление macOS/Windows
+                self.os.notify("Файл скачан!", f"Сохранен в: {filepath}")
 
     def update_drawer(self):
         # Функция для кнопки закрытия

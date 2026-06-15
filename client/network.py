@@ -1,57 +1,119 @@
-import asyncio
+import httpx
+import websockets
 import json
-import ssl
 import traceback
+import ssl
+
 
 class MessengerNetwork:
     def __init__(self, on_message_received, on_disconnected):
-        self.reader = None
-        self.writer = None
         self.on_message_received = on_message_received
         self.on_disconnected = on_disconnected
 
+        self.token = None
+        self.host = None
+        self.port = None
+        self.api_url = ""
+        self.ws_url = ""
+        self.ws = None
+
+        # Разрешаем клиенту доверять самоподписанным 10-летним сертификатам сервера
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.check_hostname = False
+        self.ssl_context.verify_mode = ssl.CERT_NONE
+
     async def connect(self, host, port, username, password, mode="login", secret=""):
-        try:
-            ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+        self.host = host
+        self.port = port
+        # ВНИМАНИЕ: Теперь мы используем HTTPS и WSS!
+        self.api_url = f"https://{host}:{port}/api"
+        self.ws_url = f"wss://{host}:{port}/ws"
 
-            self.reader, self.writer = await asyncio.open_connection(
-                host, port,
-                ssl=ssl_context,
-                limit=1024 * 1024 * 50
-            )
+        # Отключаем проверку сертификата в httpx (verify=False)
+        async with httpx.AsyncClient(verify=False) as client:
+            try:
+                if mode == "register":
+                    res = await client.post(f"{self.api_url}/auth/register", json={
+                        "username": username, "password": password, "secret": secret
+                    })
+                else:
+                    res = await client.post(f"{self.api_url}/auth/login", json={
+                        "username": username, "password": password
+                    })
 
-            auth_data = {"mode": mode, "username": username, "password": password, "secret": secret}
-            await self.send(auth_data)
+                if res.status_code != 200:
+                    return {"status": "error", "msg": res.json().get("detail", "Ошибка авторизации")}
 
-            response_line = await self.reader.readline()
-            if not response_line:
-                return {"status": "error", "msg": "Сервер разорвал соединение"}
-            return json.loads(response_line.decode().strip())
-        except Exception as e:
-            return {"status": "error", "msg": str(e)}
+                self.token = res.json().get("access_token")
+                return {"status": "ok"}
+            except Exception as e:
+                print(f"Connection Error: {e}")
+                return {"status": "error", "msg": "Сервер недоступен"}
 
     async def send(self, data: dict):
-        if self.writer:
-            self.writer.write(json.dumps(data).encode() + b'\n')
-            await self.writer.drain()
+        action = data.get("action")
+        headers = {"Authorization": f"Bearer {self.token}"}
+
+        if action == "send_msg" and self.ws:
+            await self.ws.send(json.dumps(data))
+            return
+
+        async with httpx.AsyncClient(verify=False) as client:
+            try:
+                if action == "get_chats":
+                    res = await client.get(f"{self.api_url}/chats/", headers=headers)
+                    if res.status_code == 200:
+                        await self.on_message_received({"action": "chat_list", "chats": res.json().get("chats")})
+
+                elif action == "get_history":
+                    chat_id = data.get("chat_id")
+                    res = await client.get(f"{self.api_url}/messages/{chat_id}?limit={data.get('limit', 50)}",
+                                           headers=headers)
+                    if res.status_code == 200:
+                        await self.on_message_received({"action": "history", **res.json()})
+
+                elif action == "create_dialog":
+                    res = await client.post(f"{self.api_url}/chats/dialog",
+                                            json={"target_username": data.get("target")}, headers=headers)
+                    if res.status_code == 200:
+                        await self.on_message_received({"action": "dialog_created", **res.json()})
+
+                elif action == "delete_msg":
+                    await client.delete(f"{self.api_url}/messages/{data.get('msg_id')}", headers=headers)
+
+                elif action == "send_file":
+                    with open(data.get("filepath"), "rb") as f:
+                        files = {"file": (data.get("filename"), f)}
+                        await client.post(f"{self.api_url}/messages/{data.get('chat_id')}/files", files=files,
+                                          headers=headers)
+
+                elif action == "req_file":
+                    save_path = data.get("save_path")
+                    async with client.stream("GET", f"{self.api_url}/messages/files/{data.get('msg_id')}",
+                                             headers=headers) as res:
+                        if res.status_code == 200:
+                            with open(save_path, "wb") as f:
+                                async for chunk in res.aiter_bytes():
+                                    f.write(chunk)
+                            await self.on_message_received({"action": "file_saved", "filepath": save_path})
+
+            except Exception as e:
+                print(f"Network REST Error ({action}): {e}")
 
     async def listen(self):
         try:
-            while True:
-                line = await self.reader.readline()
-                if not line:
-                    await self.on_disconnected()
-                    break
-                await self.on_message_received(json.loads(line.decode().strip()))
+            # ВНИМАНИЕ: Передаем наш ssl_context для WSS-соединения!
+            async with websockets.connect(f"{self.ws_url}?token={self.token}", ssl=self.ssl_context) as ws:
+                self.ws = ws
+                while True:
+                    message = await ws.recv()
+                    await self.on_message_received(json.loads(message))
         except Exception as e:
-            # ТЕПЕРЬ ОШИБКИ НЕ БУДУТ СКРЫВАТЬСЯ!
-            print("\n--- КРИТИЧЕСКАЯ ОШИБКА В СЕТЕВОМ ПОТОКЕ ---")
+            print("\n--- ОБРЫВ СВЯЗИ (WebSocket) ---")
             traceback.print_exc()
             await self.on_disconnected()
 
     async def disconnect(self):
-        if self.writer:
-            self.writer.close()
-            await self.writer.wait_closed()
+        if self.ws:
+            await self.ws.close()
+            self.ws = None

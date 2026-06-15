@@ -1,16 +1,35 @@
 version: '3.8'
 
 services:
-  messenger-server:
-    build: .
-    container_name: simple_messenger_server
-    restart: unless-stopped
-    ports:
-      - "8888:8888"
-    volumes:
-      - messenger_data:/app/data
+  db:
+    image: postgres:16-alpine
+    container_name: messenger_postgres
+    restart: always
+    # Передаем переменные прямо из файла .env
     env_file:
       - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  server:
+    build: .
+    container_name: messenger_server
+    restart: always
+    ports:
+      - "1234:8888"
+    depends_on:
+      - db
+    # Сервер тоже читает переменные из .env
+    env_file:
+      - .env
+    # ВАЖНО: При работе внутри Docker мы жестко переопределяем DB_HOST,
+    # чтобы сервер стучался в соседний контейнер `db`, а не в `localhost`
+    environment:
+      - DB_HOST=db
+    volumes:
+      - ./uploads:/app/uploads
 
 volumes:
-  messenger_data:
+  postgres_data:
