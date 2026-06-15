@@ -50,7 +50,7 @@ if not exist %ISCC_PATH% set ISCC_PATH="%ProgramFiles%\Inno Setup 6\ISCC.exe"
 if exist %ISCC_PATH% (
     echo Компиляция SimpleMessenger_Setup_v%APP_VERSION%.exe...
     :: Передаем версию в .iss файл через параметр /DAppVersion
-    %ISCC_PATH% /DAppVersion="%APP_VERSION%" scripts\installer.iss > nul
+    %ISCC_PATH% /O"dist" /DAppVersion="%APP_VERSION%" scripts\installer.iss > nul
     echo Установщик успешно создан!
     echo Удаление исходного .exe файла...
     if exist "dist\SimpleMessenger.exe" del /q "dist\SimpleMessenger.exe"
