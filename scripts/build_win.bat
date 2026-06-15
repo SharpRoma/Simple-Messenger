@@ -59,6 +59,7 @@ if exist %ISCC_PATH% (
 :: ФИНАЛЬНАЯ УБОРКА МУСОРА
 if exist "build" rmdir /s /q "build"
 if exist "*.spec" del /q "*.spec"
+if exist "*.ico" del /q "*.spec"
 
 echo.
 echo СБОРКА УСПЕШНО ЗАВЕРШЕНА!
