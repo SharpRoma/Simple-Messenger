@@ -8,10 +8,19 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 import keyring
 
-# --- ПУТИ ПРОЕКТА ---
-BASE_DIR = Path(__file__).parent
-LOCAL_ASSETS_DIR = BASE_DIR / "assets"
 
+# --- ВЕРСИЯ ПРИЛОЖЕНИЯ ---
+APP_VERSION = "1.1.0"
+
+
+# --- УМНЫЕ ПУТИ ДЛЯ PYINSTALLER ---
+# Когда Flet собирает .exe, он прячет assets во временную папку sys._MEIPASS
+if getattr(sys, 'frozen', False):
+    BASE_DIR = Path(sys._MEIPASS)
+else:
+    BASE_DIR = Path(__file__).parent
+
+LOCAL_ASSETS_DIR = BASE_DIR / "assets"
 
 # --- УМНЫЕ ПУТИ ДЛЯ ОС (Где храним данные) ---
 def get_app_data_dir() -> Path:
@@ -19,11 +28,10 @@ def get_app_data_dir() -> Path:
     if system == "Windows":
         app_data = os.environ.get('APPDATA', os.path.expanduser('~'))
         return Path(app_data) / "SimpleMessenger"
-    elif system == "Darwin":  # macOS
+    elif system == "Darwin": # macOS
         return Path.home() / "Library" / "Application Support" / "SimpleMessenger"
-    else:  # Linux
+    else: # Linux
         return Path.home() / ".config" / "SimpleMessenger"
-
 
 APP_DIR = get_app_data_dir()
 APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -38,66 +46,56 @@ ICO_PATH = ASSETS_DIR / "icon.ico"
 
 
 # --- АВТОГЕНЕРАЦИЯ ИКОНОК ---
-# --- АВТОГЕНЕРАЦИЯ ИКОНОК ---
 def create_icons_if_needed():
-    """Создает базовые иконки или делает круглую кастомную из папки проекта"""
     custom_icon = LOCAL_ASSETS_DIR / "icon.png"
 
+    # Файл-маркер, чтобы понимать, обновляли ли мы иконки для текущей версии
+    version_file = ASSETS_DIR / "version.txt"
+    need_update = not version_file.exists() or version_file.read_text().strip() != APP_VERSION
+
+    if not need_update and ICON_PATH.exists():
+        return  # Иконки актуальны, ничего не делаем
+
     try:
-        # 1. Если есть картинка в проекте — делаем из нее круг
+        # 1. Делаем круглую иконку из исходников
         if custom_icon.exists():
             img = Image.open(custom_icon).convert("RGBA")
-
-            # Делаем из нее ровный квадрат (обрезаем по центру, если она прямоугольная)
             w, h = img.size
             min_dim = min(w, h)
-            left = (w - min_dim) / 2
-            top = (h - min_dim) / 2
-            right = (w + min_dim) / 2
-            bottom = (h + min_dim) / 2
+            left, top = (w - min_dim) / 2, (h - min_dim) / 2
+            right, bottom = (w + min_dim) / 2, (h + min_dim) / 2
             img = img.crop((left, top, right, bottom))
 
-            # Создаем идеально круглую маску
             mask = Image.new("L", img.size, 0)
-            draw = ImageDraw.Draw(mask)
-            draw.ellipse((0, 0, img.size[0], img.size[1]), fill=255)
+            ImageDraw.Draw(mask).ellipse((0, 0, img.size[0], img.size[1]), fill=255)
 
-            # Применяем маску к картинке (края становятся прозрачными)
             circular_img = Image.new("RGBA", img.size, (0, 0, 0, 0))
             circular_img.paste(img, (0, 0), mask=mask)
             circular_img.save(ICON_PATH)
 
-        # 2. Если кастомной нет и в системе пусто — рисуем серую круглую заглушку
-        elif not ICON_PATH.exists():
+        # 2. Либо рисуем заглушку
+        else:
             img = Image.new('RGBA', (64, 64), color=(0, 0, 0, 0))
             d = ImageDraw.Draw(img)
             d.ellipse((4, 4, 60, 60), fill=(43, 43, 43))
             d.text((16, 24), "MSG", fill=(255, 255, 255))
             img.save(ICON_PATH)
 
-        # 3. Рисуем ОГРОМНЫЙ кружок непрочитанных сообщений
+        # 3. Рисуем кружок уведомлений
         if ICON_PATH.exists():
             img = Image.open(ICON_PATH).convert("RGBA")
             unread_img = img.copy()
             d = ImageDraw.Draw(unread_img)
-
             w, h = unread_img.size
 
-            # Координаты бейджика (x1, y1, x2, y2).
-            # Теперь он занимает почти 50% от ширины всей иконки!
             badge_bbox = (w * 0.50, h * 0.02, w * 0.98, h * 0.50)
-
-            # Рисуем красный круг с более толстой белой обводкой
-            d.ellipse(
-                badge_bbox,
-                fill=(255, 0, 0),
-                outline=(255, 255, 255),
-                width=max(2, int(w * 0.04))
-            )
+            d.ellipse(badge_bbox, fill=(255, 0, 0), outline=(255, 255, 255), width=max(2, int(w * 0.04)))
             unread_img.save(UNREAD_ICON_PATH)
 
-            # 4. Формат .ico для уведомлений Центра Windows
             img.save(ICO_PATH, format="ICO", sizes=[(64, 64), (128, 128), (256, 256)])
+
+        # Записываем версию, чтобы больше не перерисовывать до следующего обновления
+        version_file.write_text(APP_VERSION)
     except Exception as e:
         print(f"Ошибка при обработке иконок: {e}")
 
