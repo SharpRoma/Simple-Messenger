@@ -43,6 +43,10 @@ if [ -n "$APP_PATH" ]; then
     # Используем встроенную в macOS утилиту hdiutil (без сторонних программ!)
     hdiutil create -volname "Simple Messenger" -srcfolder "$FINAL_APP_PATH" -ov -format UDZO "$DMG_NAME" > /dev/null
 
+    # --- УДАЛЯЕМ ИСХОДНЫЙ .APP ---
+    echo "Очистка временных файлов (удаление исходного .app)..."
+    rm -rf "$FINAL_APP_PATH"
+
     # Уборка мусора
     rm -rf build
 
