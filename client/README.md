@@ -59,10 +59,10 @@
 ## Сборка приложения из исходного кода
 
 1. Для macOS: 
-    ```Bash 
+    ```Bash
     scripts/build_mac.sh 
     ``` 
 2. Для Windows: 
-    ```Bash 
+    ```Bash
     scripts/build_win.bat 
     ``` 

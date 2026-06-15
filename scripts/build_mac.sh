@@ -8,13 +8,12 @@ cd "$(dirname "$0")/../client"
 
 echo "Начинаем нативную сборку Simple Messenger для macOS..."
 
-# --- ЧИТАЕМ ВЕРСИЮ ИЗ CONFIG.PY ---
-# Используем grep и awk для извлечения значения в кавычках
-APP_VERSION=$(grep 'APP_VERSION' config.py | awk -F '"' '{print $2}')
-if [ -z "$APP_VERSION" ]; then
-    APP_VERSION="1.0.0"
-fi
-echo "Обнаружена версия проекта: $APP_VERSION"
+:: --- ЧИТАЕМ ВЕРСИЮ ИЗ CONFIG.PY ---
+for /f "tokens=2 delims=^=" %%a in ('findstr "^APP_VERSION" client\config.py') do set RAW_VERSION=%%a
+:: Очищаем от кавычек и пробелов
+set APP_VERSION=%RAW_VERSION:"=%
+set APP_VERSION=%APP_VERSION: =%
+echo Обнаружена версия проекта: %APP_VERSION%
 
 # Очистка
 rm -rf build ../dist
