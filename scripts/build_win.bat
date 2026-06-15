@@ -12,7 +12,7 @@ if not exist "%ICON_PATH%" (
 )
 
 :: --- ЧИТАЕМ ВЕРСИЮ ИЗ CONFIG.PY ---
-for /f "tokens=2 delims=^=" %%a in ('findstr "APP_VERSION" client\config.py') do set RAW_VERSION=%%a
+for /f "tokens=2 delims==" %%a in ('findstr /B "APP_VERSION" client\config.py') do set RAW_VERSION=%%a
 :: Очищаем от кавычек и пробелов
 set APP_VERSION=%RAW_VERSION:"=%
 set APP_VERSION=%APP_VERSION: =%
