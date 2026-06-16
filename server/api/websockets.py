@@ -6,6 +6,9 @@ class ConnectionManager:
         # Словарь: { "username": set(websocket1, websocket2) } (поддержка нескольких устройств)
         self.active_connections: dict[str, set[WebSocket]] = {}
 
+    def is_online(self, username: str) -> bool:
+        return username in self.active_connections and len(self.active_connections[username]) > 0
+
     async def connect(self, websocket: WebSocket, username: str):
         await websocket.accept()
         if username not in self.active_connections:
@@ -30,5 +33,15 @@ class ConnectionManager:
                     await connection.send_text(text_data)
                 except Exception:
                     self.disconnect(connection, username)
+
+    async def broadcast(self, message: dict):
+        """Отправляет сообщение абсолютно всем, кто сейчас онлайн"""
+        text_data = json.dumps(message)
+        for username, connections in list(self.active_connections.items()):
+            for connection in list(connections):
+                try:
+                    await connection.send_text(text_data)
+                except Exception:
+                    pass
 
 manager = ConnectionManager()

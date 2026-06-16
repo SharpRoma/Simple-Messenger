@@ -11,6 +11,8 @@ from ui.dialogs.register_dialog import RegisterDialog
 from ui.dialogs.create_group_dialog import CreateGroupDialog
 from ui.dialogs.add_member_dialog import AddMemberDialog
 
+from ui.dialogs.chat_profile_dialog import ChatProfileDialog
+from datetime import datetime # Понадобится для форматирования времени
 
 class MainWindow:
     def __init__(self, page: ft.Page, system_adapter, settings_manager):
@@ -22,6 +24,7 @@ class MainWindow:
         self.current_username = ""
         self.active_chat_id = 1
         self.chats_info = {}
+        self.users_status = {}
         self.pending_downloads = {}
 
         self.network = MessengerNetwork(self.on_net_message, self.on_net_disconnect)
@@ -95,7 +98,8 @@ class MainWindow:
             on_copy_message=self.handle_copy_message,
             on_delete_message=self.handle_delete_message,
             on_download_file=self.handle_download_file,
-            on_input_focus=lambda: self.os.set_tray_badge(False)
+            on_input_focus=lambda: self.os.set_tray_badge(False),
+            on_open_profile = self.handle_open_profile
         )
         self.page.add(self.chat_screen)
 
@@ -196,6 +200,43 @@ class MainWindow:
 
         dialog = PmDialog(self.page, on_create_pm)
         dialog.show()
+
+    def handle_open_profile(self):
+        # Запрашиваем у сервера список участников группы
+        self.page.run_task(self.network.send, {"action": "get_chat_members", "chat_id": self.active_chat_id})
+
+    def update_chat_header(self):
+        """Умное обновление шапки чата (имени и статуса)"""
+        if not hasattr(self, 'chat_screen'): return
+
+        chat_data = self.chats_info.get(self.active_chat_id, {})
+        if not chat_data: return
+
+        cname = self.get_chat_name(chat_data)
+        is_group = chat_data.get('type') == 'group'
+
+        subtitle = ""
+        is_online = False
+
+        if chat_data.get('type') == 'dialog':
+            # Достаем имя собеседника
+            users = chat_data.get('name', '').split('_')
+            if len(users) == 2:
+                other_user = users[0] if users[1] == self.current_username else users[1]
+                # Проверяем его статус
+                status = self.users_status.get(other_user, {})
+                if status.get("is_online"):
+                    subtitle = "в сети"
+                    is_online = True
+                elif status.get("last_seen"):
+                    ts = datetime.fromtimestamp(status["last_seen"]).strftime('%H:%M')
+                    subtitle = f"был(а) {ts}"
+                else:
+                    subtitle = "оффлайн"
+        elif is_group:
+            subtitle = "групповой чат"
+
+        self.chat_screen.set_chat_title(cname, subtitle=subtitle, show_info=is_group, is_online=is_online)
 
     def show_create_group_modal(self):
         def on_create(name):
@@ -369,7 +410,25 @@ class MainWindow:
                     file_name=msg.get('file_name')
                 )
 
-            # --- ДОБАВЛЕНО: Уведомление о сохранении файла ---
+        elif action == "status":
+            # Сервер прислал чей-то статус
+            username = data.get("username")
+            self.users_status[username] = {
+                "is_online": data.get("status") == "online",
+                "last_seen": data.get("last_seen")
+            }
+            # Сразу перерисовываем шапку (вдруг мы сейчас в диалоге с этим человеком!)
+            self.update_chat_header()
+
+        elif action == "chat_members_data":
+            # Сервер прислал профиль группы
+            chat_data = self.chats_info.get(self.active_chat_id, {})
+            cname = self.get_chat_name(chat_data)
+            members = data.get("members", [])
+
+            dialog = ChatProfileDialog(self.page, cname, members, self.show_add_member_modal)
+            dialog.show()
+
         elif action == "file_saved":
             filepath = data.get("filepath")
             if filepath:

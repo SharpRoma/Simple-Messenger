@@ -112,3 +112,41 @@ async def add_member(chat_id: int, req: AddMemberRequest, username: str = Depend
         pass  # Если юзер уже в чате (IntegrityError), просто игнорируем
 
     return {"status": "ok"}
+
+
+@router.get("/{chat_id}/members")
+async def get_chat_members(chat_id: int, username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Возвращает профиль чата: список участников и их статусы"""
+    # 1. Проверка прав (админ или участник)
+    user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
+    is_admin = user.is_admin if user else False
+
+    if not is_admin:
+        member_check = await db.execute(
+            select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username))
+        if not member_check.scalar_one_or_none():
+            raise HTTPException(status_code=403, detail="Вы не состоите в этом чате")
+
+    # 2. Достаем всех участников и их last_seen из базы
+    query = (
+        select(User.username, User.last_seen)
+        .join(ChatMember, ChatMember.username == User.username)
+        .where(ChatMember.chat_id == chat_id)
+    )
+    result = await db.execute(query)
+
+    # 3. Формируем красивый список для интерфейса
+    from api.websockets import manager
+    members_list = []
+
+    for row in result:
+        member_name, last_seen = row.username, row.last_seen
+        is_online = manager.is_online(member_name)
+
+        members_list.append({
+            "username": member_name,
+            "is_online": is_online,
+            "last_seen": last_seen
+        })
+
+    return {"members": members_list}

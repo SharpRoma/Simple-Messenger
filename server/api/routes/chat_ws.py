@@ -8,8 +8,10 @@ from api.websockets import manager
 from models.message import Message
 from models.chat import ChatMember
 from models.user import User
+from core.database import async_session_maker
 
 import json
+import time
 
 router = APIRouter(tags=["WebSockets"])
 
@@ -23,13 +25,15 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
         await websocket.close(code=1008)  # 1008 - Ошибка авторизации
         return
 
-    # --- ДОБАВЛЕНО: Узнаем, админ ли это ---
+    # --- Узнаем, админ ли это ---
     user_obj = await db.execute(select(User).where(User.username == username))
     user = user_obj.scalar_one_or_none()
     is_admin = user.is_admin if user else False
 
     # 2. Регистрируем пользователя как "Онлайн"
     await manager.connect(websocket, username)
+
+    await manager.broadcast({"action": "status", "username": username, "status": "online"})
 
     try:
         # 3. Бесконечный цикл прослушивания сообщений
@@ -88,10 +92,24 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
                         "message": msg_obj
                     })
 
-            # ... (остальные экшены типа delete_msg, req_file добавим чуть позже)
 
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, Exception) as e:
+        # Если юзер отключился (закрыл клиент или пропал интернет)
         manager.disconnect(websocket, username)
-    except Exception as e:
-        print(f"Ошибка сокета у {username}: {e}")
-        manager.disconnect(websocket, username)
+        # 1. Записываем время выхода в базу данных
+        current_time = int(time.time())
+        async with async_session_maker() as session:
+            db_user = await session.get(User, username)
+            if db_user:
+                db_user.last_seen = current_time
+                await session.commit()
+
+        # 2. Сообщаем всем, что юзер вышел (и передаем время выхода)
+        # Рассылаем статус offline только если юзер закрыл ВСЕ свои вкладки/устройства
+        if not manager.is_online(username):
+            await manager.broadcast({
+                "action": "status",
+                "username": username,
+                "status": "offline",
+                "last_seen": current_time
+            })

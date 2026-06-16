@@ -81,12 +81,16 @@ class MessengerNetwork:
                 elif action == "delete_msg":
                     await client.delete(f"{self.api_url}/messages/{data.get('msg_id')}", headers=headers)
 
+                elif action == "get_chat_members":
+                    res = await client.get(f"{self.api_url}/chats/{data.get('chat_id')}/members", headers=headers)
+                    if res.status_code == 200:
+                        await self.on_message_received({"action": "chat_members_data", **res.json()})
+
                 elif action == "send_file":
                     with open(data.get("filepath"), "rb") as f:
                         files = {"file": (data.get("filename"), f)}
                         await client.post(f"{self.api_url}/messages/{data.get('chat_id')}/files", files=files,
                                           headers=headers)
-
                 elif action == "req_file":
                     save_path = data.get("save_path")
                     async with client.stream("GET", f"{self.api_url}/messages/files/{data.get('msg_id')}",

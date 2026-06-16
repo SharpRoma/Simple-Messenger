@@ -14,7 +14,7 @@ class ChatScreen(ft.Container):
             on_delete_message,
             on_download_file,
             on_input_focus,
-            on_add_member
+            on_open_profile
     ):
         super().__init__()
         self.expand = True
@@ -29,36 +29,34 @@ class ChatScreen(ft.Container):
         self.on_download_file = on_download_file
         self.on_input_focus = on_input_focus
 
+        self.on_open_profile = on_open_profile
+
         self.is_pinned = False
         self._build_ui()
 
     def _build_ui(self):
         self.chat_history = ft.ListView(expand=True, spacing=5, auto_scroll=True)
-        self.msg_input = ft.TextField(
-            hint_text="Написать сообщение...", expand=True,
-            on_submit=self._submit_message, on_focus=lambda e: self.on_input_focus()
-        )
+        self.msg_input = ft.TextField(hint_text="Написать сообщение...", expand=True, on_submit=self._submit_message,
+                                      on_focus=lambda e: self.on_input_focus())
 
-        # --- НОВЫЙ ДИЗАЙН ВЕРХНЕЙ ПАНЕЛИ ---
-        self.chat_title = ft.Text("Simple Messenger", size=18, weight="bold", expand=True,
-                                  text_align=ft.TextAlign.CENTER)
-        self.pin_btn = ft.IconButton(
-            icon=ft.Icons.PUSH_PIN, icon_color=ft.Colors.WHITE54, tooltip="Поверх всех", on_click=self._toggle_pin
-        )
+        # --- ОБНОВЛЕННЫЙ ДИЗАЙН ШАПКИ ---
+        self.chat_title = ft.Text("Simple Messenger", size=18, weight="bold")
+        self.chat_subtitle = ft.Text("", size=12, color=ft.Colors.GREY_400)  # Подзаголовок со статусом!
 
-        self.add_user_btn = ft.IconButton(icon=ft.Icons.PERSON_ADD, tooltip="Добавить участника",
-                                          on_click=lambda e: self.on_add_member(), visible=False)
+        title_col = ft.Column([self.chat_title, self.chat_subtitle], alignment=ft.MainAxisAlignment.CENTER,
+                              horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, expand=True)
+
+        self.pin_btn = ft.IconButton(icon=ft.Icons.PUSH_PIN, icon_color=ft.Colors.WHITE54, tooltip="Поверх всех",
+                                     on_click=self._toggle_pin)
+
+        # Кнопка Инфо (Профиль)
+        self.info_btn = ft.IconButton(icon=ft.Icons.INFO_OUTLINE, tooltip="Профиль чата",
+                                      on_click=lambda e: self.on_open_profile(), visible=False)
 
         header_row = ft.Row([
             ft.IconButton(icon=ft.Icons.MENU, on_click=lambda e: self.on_open_drawer()),
-            self.chat_title,
-            ft.Row([self.add_user_btn, self.pin_btn])  # <--- Теперь тут 2 кнопки справа
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
-        header_row = ft.Row([
-            ft.IconButton(icon=ft.Icons.MENU, on_click=lambda e: self.on_open_drawer()),  # Бургер слева
-            self.chat_title,  # Название по центру
-            self.pin_btn  # Заколка справа
+            title_col,
+            ft.Row([self.info_btn, self.pin_btn])
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
         input_row = ft.Row([
@@ -68,18 +66,20 @@ class ChatScreen(ft.Container):
             ft.IconButton(icon=ft.Icons.SEND, icon_color=ft.Colors.BLUE, on_click=self._submit_message)
         ])
 
-        self.content = ft.Column([
-            header_row,
-            ft.Divider(height=1),
-            ft.Container(content=self.chat_history, expand=True, border_radius=5, padding=10, bgcolor="#1e1e1e"),
-            input_row
-        ], expand=True)
+        self.content = ft.Column([header_row, ft.Divider(height=1),
+                                  ft.Container(content=self.chat_history, expand=True, border_radius=5, padding=10,
+                                               bgcolor="#1e1e1e"), input_row], expand=True)
 
-    def set_chat_title(self, title: str, is_group: bool = False):
+    def set_chat_title(self, title: str, subtitle: str = "", show_info: bool = False, is_online: bool = False):
         self.chat_title.value = title
-        self.add_user_btn.visible = is_group  # Показывать кнопку только для групп!
+        self.chat_subtitle.value = subtitle
+        self.chat_subtitle.color = ft.Colors.GREEN if is_online else ft.Colors.GREY_400
+
+        self.info_btn.visible = show_info
+
         self.chat_title.update()
-        self.add_user_btn.update()
+        self.chat_subtitle.update()
+        self.info_btn.update()
 
     # --- Внутренняя логика UI ---
     def _submit_message(self, e):
