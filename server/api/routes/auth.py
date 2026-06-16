@@ -28,10 +28,7 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
     new_user = User(username=user_data.username, password=hash_password(user_data.password))
     db.add(new_user)
 
-    # 4. Добавляем в "Общий чат" (id=1)
-    db.add(ChatMember(chat_id=1, username=new_user.username))
-
-    # 5. Создаем личный чат "Избранное"
+    # 4. Создаем личный чат "Избранное"
     saved_chat = Chat(name="Избранное", type="saved")
     db.add(saved_chat)
     await db.flush()  # Получаем ID созданного чата до коммита

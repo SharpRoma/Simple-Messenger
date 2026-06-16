@@ -6,7 +6,7 @@ from core.database import get_db
 from api.dependencies import get_username_from_token
 from models.chat import Chat, ChatMember
 from models.user import User
-from schemas.chat import ChatListResponse, ChatResponse, CreateDialogRequest
+from schemas.chat import ChatListResponse, ChatResponse, CreateDialogRequest, CreateGroupRequest, AddMemberRequest
 
 from api.dependencies import get_current_user
 
@@ -61,3 +61,54 @@ async def create_dialog(req: CreateDialogRequest, username: str = Depends(get_cu
     await db.commit()
 
     return {"chat_id": new_chat.id, "target": target}
+
+
+@router.post("/group")
+async def create_group(req: CreateGroupRequest, username: str = Depends(get_current_user),
+                       db: AsyncSession = Depends(get_db)):
+    """Создает групповой чат"""
+    new_chat = Chat(name=req.name, type="group")
+    db.add(new_chat)
+    await db.flush()
+
+    db.add(ChatMember(chat_id=new_chat.id, username=username))
+    await db.commit()
+    return {"chat_id": new_chat.id, "name": new_chat.name}
+
+
+@router.post("/{chat_id}/members")
+async def add_member(chat_id: int, req: AddMemberRequest, username: str = Depends(get_current_user),
+                     db: AsyncSession = Depends(get_db)):
+    """Добавляет пользователя в групповой чат"""
+    # Проверяем, состоит ли текущий юзер в чате (или он админ)
+    user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
+    is_admin = user.is_admin if user else False
+
+    if not is_admin:
+        member_check = await db.execute(
+            select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username))
+        if not member_check.scalar_one_or_none():
+            raise HTTPException(status_code=403, detail="Вы не состоите в этом чате")
+
+    # Проверяем, что это именно группа
+    chat = (await db.execute(select(Chat).where(Chat.id == chat_id))).scalar_one_or_none()
+    if not chat or chat.type != "group":
+        raise HTTPException(status_code=400, detail="Добавлять участников можно только в группы")
+
+    # Проверяем, существует ли целевой юзер
+    target_user = (await db.execute(select(User).where(User.username == req.username))).scalar_one_or_none()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    try:
+        db.add(ChatMember(chat_id=chat_id, username=req.username))
+        await db.commit()
+
+        # Сигнализируем добавленному пользователю через WebSocket, чтобы у него обновился список чатов
+        from api.websockets import manager
+        await manager.send_to_user(req.username, {"action": "chat_added"})
+
+    except Exception:
+        pass  # Если юзер уже в чате (IntegrityError), просто игнорируем
+
+    return {"status": "ok"}

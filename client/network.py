@@ -97,6 +97,18 @@ class MessengerNetwork:
                                     f.write(chunk)
                             await self.on_message_received({"action": "file_saved", "filepath": save_path})
 
+                elif action == "create_group":
+                    res = await client.post(f"{self.api_url}/chats/group", json={"name": data.get("name")},
+                                            headers=headers)
+                    if res.status_code == 200:
+                        await self.on_message_received({"action": "group_created", **res.json()})
+
+                elif action == "add_member":
+                    res = await client.post(f"{self.api_url}/chats/{data.get('chat_id')}/members",
+                                            json={"username": data.get("username")}, headers=headers)
+                    if res.status_code == 200:
+                        await self.on_message_received({"action": "member_added"})
+
             except Exception as e:
                 print(f"Network REST Error ({action}): {e}")
 

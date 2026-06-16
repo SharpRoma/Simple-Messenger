@@ -14,19 +14,10 @@ async_session_maker = async_sessionmaker(engine, expire_on_commit=False, class_=
 
 
 async def init_db():
-    """Создает все таблицы при запуске сервера, если их нет"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Создаем "Общий чат" (ID=1)
     async with async_session_maker() as session:
-        query = select(Chat).where(Chat.id == 1)
-        result = await session.execute(query)
-        if not result.scalar_one_or_none():
-            global_chat = Chat(id=1, name="Общий чат", type="global")
-            session.add(global_chat)
-            await session.commit()
-
         # --- СОЗДАНИЕ АДМИНА ---
         admin_check = await session.execute(select(User).where(User.username == "admin"))
         if not admin_check.scalar_one_or_none():
@@ -37,7 +28,7 @@ async def init_db():
             )
             session.add(admin_user)
             await session.commit()
-            print("Пользователь 'admin' создан!")
+            print("Пользователь 'admin' успешно создан")
 
 # Зависимость (Dependency) для FastAPI
 # Эта функция будет выдавать сессию БД каждый раз, когда кто-то дергает ручку

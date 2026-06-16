@@ -11,3 +11,9 @@ class ChatListResponse(BaseModel):
 
 class CreateDialogRequest(BaseModel):
     target_username: str
+
+class CreateGroupRequest(BaseModel):
+    name: str
+
+class AddMemberRequest(BaseModel):
+    username: str

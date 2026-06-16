@@ -8,6 +8,9 @@ from ui.dialogs.settings_dialog import SettingsDialog
 from ui.dialogs.pm_dialog import PmDialog
 from ui.dialogs.register_dialog import RegisterDialog
 
+from ui.dialogs.create_group_dialog import CreateGroupDialog
+from ui.dialogs.add_member_dialog import AddMemberDialog
+
 
 class MainWindow:
     def __init__(self, page: ft.Page, system_adapter, settings_manager):
@@ -86,6 +89,7 @@ class MainWindow:
             current_username=self.current_username,
             on_send_message=self.handle_send_message,
             on_attach_file=self.handle_attach_file,
+            on_add_member=self.show_add_member_modal,
             on_open_drawer=open_menu,
             on_toggle_pin=self.handle_toggle_pin,
             on_copy_message=self.handle_copy_message,
@@ -192,6 +196,19 @@ class MainWindow:
 
         dialog = PmDialog(self.page, on_create_pm)
         dialog.show()
+
+    def show_create_group_modal(self):
+        def on_create(name):
+            self.page.run_task(self.network.send, {"action": "create_group", "name": name})
+
+        CreateGroupDialog(self.page, on_create).show()
+
+    def show_add_member_modal(self):
+        def on_add(username):
+            self.page.run_task(self.network.send,
+                               {"action": "add_member", "chat_id": self.active_chat_id, "username": username})
+
+        AddMemberDialog(self.page, on_add).show()
 
     def show_settings_modal(self):
         def on_settings_changed(new_settings):
@@ -328,12 +345,21 @@ class MainWindow:
                 self.chats_info[c['id']] = c
             self.update_drawer()
 
+        elif action in ["group_created", "chat_added", "member_added"]:
+            # Обновляем список чатов, если нас добавили или мы создали группу
+            self.page.run_task(self.network.send, {"action": "get_chats"})
+            if action == "member_added":
+                self.show_snackbar("Участник успешно добавлен!")
 
         elif action == "history":
             self.chat_screen.clear_messages()
             messages, chat_id = data.get("messages", []), data.get("chat_id")
-            cname = self.chats_info.get(chat_id, {}).get("name", f"ID:{chat_id}")
-            self.chat_screen.set_chat_title(cname)
+
+            chat_data = self.chats_info.get(chat_id, {})
+            cname = self.get_chat_name(chat_data) if chat_data else f"ID:{chat_id}"
+            is_group = chat_data.get('type') == 'group'
+
+            self.chat_screen.set_chat_title(cname, is_group)
             for msg in messages:
                 self.chat_screen.add_message(
                     sender=msg['sender'],
@@ -360,10 +386,9 @@ class MainWindow:
                     await self.page.close_drawer()
             self.page.run_task(close_task)
 
-        # Теперь в заголовке кнопка-бургер и текст (используем безопасный padding=10)
         controls = [
             ft.Container(
-                padding=10,  # <--- ИСПРАВЛЕНО: просто число вместо ft.padding.only
+                padding=10,
                 content=ft.Row([
                     ft.IconButton(icon=ft.Icons.MENU, on_click=_close_drawer_btn),
                     ft.Text("Меню", size=20, weight="bold")
@@ -380,13 +405,23 @@ class MainWindow:
         def make_select(cid):
             return lambda e: self.handle_select_chat(cid)
 
-        controls.append(
-            ft.ListTile(leading=ft.Icon(ft.Icons.GROUP), title=ft.Text("Общий чат"), on_click=make_select(1)))
+        # --- 1. Групповые чаты ---
+        has_groups = False
+        for cid, chat in self.chats_info.items():
+            if chat.get('type') == 'group':
+                has_groups = True
+                controls.append(ft.ListTile(leading=ft.Icon(ft.Icons.GROUP), title=ft.Text(chat['name']),
+                                            on_click=make_select(cid)))
+        if not has_groups:
+            controls.append(ft.Container(padding=15, content=ft.Text("Нет групп", color=ft.Colors.GREY_500)))
+
+        # Добавляем избранное
         if saved_id:
             controls.append(ft.ListTile(leading=ft.Icon(ft.Icons.BOOKMARK), title=ft.Text("Избранное"),
                                         on_click=make_select(saved_id)))
         controls.append(ft.Divider())
 
+        # --- 2. Личные диалоги ---
         has_dialogs = False
         for cid, chat in self.chats_info.items():
             if chat.get('type') == 'dialog':
@@ -404,10 +439,11 @@ class MainWindow:
             controls.append(ft.Container(padding=15, content=ft.Text("Нет личных сообщений", color=ft.Colors.GREY_500)))
         controls.append(ft.Divider())
 
+        # --- 3. Настройки ---
         controls.append(ft.ListTile(leading=ft.Icon(ft.Icons.ADD), title=ft.Text("Создать диалог"),
                                     on_click=lambda e: self.show_pm_modal()))
-        controls.append(ft.ListTile(leading=ft.Icon(ft.Icons.SETTINGS), title=ft.Text("Настройки"),
-                                    on_click=lambda e: self.show_settings_modal()))
+        controls.append(ft.ListTile(leading=ft.Icon(ft.Icons.GROUP_ADD), title=ft.Text("Создать группу"),
+                                    on_click=lambda e: self.show_create_group_modal()))
 
         if not self.page.drawer:
             self.page.drawer = ft.NavigationDrawer(controls=controls)
@@ -424,7 +460,6 @@ class MainWindow:
         # Закрываем меню асинхронно
         self.page.run_task(close_task)
 
-        # Остальной код без изменений
         self.active_chat_id = chat_id
         self.os.set_tray_badge(False)
         self.page.run_task(self.network.send, {"action": "get_history", "chat_id": chat_id, "limit": 20})

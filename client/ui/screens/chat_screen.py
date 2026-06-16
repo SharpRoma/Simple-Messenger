@@ -13,7 +13,8 @@ class ChatScreen(ft.Container):
             on_copy_message,
             on_delete_message,
             on_download_file,
-            on_input_focus
+            on_input_focus,
+            on_add_member
     ):
         super().__init__()
         self.expand = True
@@ -45,6 +46,15 @@ class ChatScreen(ft.Container):
             icon=ft.Icons.PUSH_PIN, icon_color=ft.Colors.WHITE54, tooltip="Поверх всех", on_click=self._toggle_pin
         )
 
+        self.add_user_btn = ft.IconButton(icon=ft.Icons.PERSON_ADD, tooltip="Добавить участника",
+                                          on_click=lambda e: self.on_add_member(), visible=False)
+
+        header_row = ft.Row([
+            ft.IconButton(icon=ft.Icons.MENU, on_click=lambda e: self.on_open_drawer()),
+            self.chat_title,
+            ft.Row([self.add_user_btn, self.pin_btn])  # <--- Теперь тут 2 кнопки справа
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
         header_row = ft.Row([
             ft.IconButton(icon=ft.Icons.MENU, on_click=lambda e: self.on_open_drawer()),  # Бургер слева
             self.chat_title,  # Название по центру
@@ -65,9 +75,11 @@ class ChatScreen(ft.Container):
             input_row
         ], expand=True)
 
-    def set_chat_title(self, title: str):
+    def set_chat_title(self, title: str, is_group: bool = False):
         self.chat_title.value = title
+        self.add_user_btn.visible = is_group  # Показывать кнопку только для групп!
         self.chat_title.update()
+        self.add_user_btn.update()
 
     # --- Внутренняя логика UI ---
     def _submit_message(self, e):
