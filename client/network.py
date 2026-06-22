@@ -62,7 +62,7 @@ class MessengerNetwork:
         action = data.get("action")
         headers = {"Authorization": f"Bearer {self.token}"}
 
-        if action == "send_msg" and self.ws:
+        if action in ["send_msg", "typing"] and self.ws:
             await self.ws.send(json.dumps(data))
             return
 

@@ -38,38 +38,68 @@ class ChatScreen(ft.Container):
 
     def _build_ui(self):
         self.chat_history = ft.ListView(expand=True, spacing=5, auto_scroll=True)
-        self.msg_input = ft.TextField(hint_text="Написать сообщение...", expand=True, on_submit=self._submit_message,
-                                      on_focus=lambda e: self.on_input_focus())
+        self.msg_input = ft.TextField(
+            hint_text="Написать сообщение...", expand=True,
+            on_submit=self._submit_message,
+            on_focus=lambda e: self.on_input_focus(),
+            on_change=lambda e: self.on_typing()
+        )
 
         self.chat_title = ft.Text("Simple Messenger", size=18, weight="bold")
         self.chat_subtitle = ft.Text("", size=12, color=ft.Colors.GREY_400)  # Подзаголовок со статусом!
 
-        title_col = ft.Column([self.chat_title, self.chat_subtitle], alignment=ft.MainAxisAlignment.CENTER,
-                              horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, expand=True)
+        title_col = ft.Column(
+            [self.chat_title, self.chat_subtitle],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=0,
+            expand=True
+        )
 
         self.pin_btn = ft.IconButton(icon=ft.Icons.PUSH_PIN, icon_color=ft.Colors.WHITE54, tooltip="Поверх всех",
                                      on_click=self._toggle_pin)
 
         # Кнопка Инфо (Профиль)
-        self.info_btn = ft.IconButton(icon=ft.Icons.INFO_OUTLINE, tooltip="Профиль чата",
-                                      on_click=lambda e: self.on_open_profile(), visible=False)
+        self.info_btn = ft.IconButton(
+            icon=ft.Icons.INFO_OUTLINE,
+            tooltip="Профиль чата",
+            on_click=lambda e: self.on_open_profile(),
+            visible=False
+        )
 
         header_row = ft.Row([
-            ft.IconButton(icon=ft.Icons.MENU, on_click=lambda e: self.on_open_drawer()),
+            ft.IconButton(
+                icon=ft.Icons.MENU,
+                on_click=lambda e: self.on_open_drawer()
+            ),
             title_col,
             ft.Row([self.info_btn, self.pin_btn])
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        ],
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
         input_row = ft.Row([
-            ft.IconButton(icon=ft.Icons.ATTACH_FILE, icon_color=ft.Colors.GREY_400,
-                          on_click=lambda e: self.on_attach_file()),
+            ft.IconButton(
+                icon=ft.Icons.ATTACH_FILE,
+                icon_color=ft.Colors.GREY_400,
+                on_click=lambda e: self.on_attach_file()
+            ),
             self.msg_input,
             ft.IconButton(icon=ft.Icons.SEND, icon_color=ft.Colors.BLUE, on_click=self._submit_message)
         ])
 
-        self.content = ft.Column([header_row, ft.Divider(height=1),
-                                  ft.Container(content=self.chat_history, expand=True, border_radius=5, padding=10,
-                                               bgcolor="#1e1e1e"), input_row], expand=True)
+        self.content = ft.Column([
+            header_row, ft.Divider(height=1),
+            ft.Container(
+                content=self.chat_history,
+                expand=True,
+                border_radius=5,
+                padding=10,
+                bgcolor="#1e1e1e"
+            ),
+            input_row
+        ],
+        expand=True
+        )
 
         self.chat_history = ft.ListView(expand=True, spacing=5, auto_scroll=True, on_scroll=self._handle_scroll)
 

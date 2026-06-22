@@ -1,3 +1,5 @@
+import json
+import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -10,8 +12,6 @@ from models.chat import ChatMember
 from models.user import User
 from core.database import async_session_maker
 
-import json
-import time
 
 router = APIRouter(tags=["WebSockets"])
 
@@ -58,9 +58,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
                         select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username)
                     )
                     if not member_check.scalar_one_or_none():
-                        continue  # Игнорируем
+                        continue
 
-                # Сохраняем сообщение в БД (Асинхронно)
+                # Сохраняем сообщение в БД
                 import time
                 new_msg = Message(
                     chat_id=chat_id,
@@ -70,7 +70,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
                 )
                 db.add(new_msg)
                 await db.commit()
-                await db.refresh(new_msg)  # Получаем ID из базы
+                await db.refresh(new_msg)
 
                 msg_obj = {
                     "id": new_msg.id,
@@ -92,9 +92,31 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
                         "message": msg_obj
                     })
 
+            elif action == "typing":
+                chat_id = data.get("chat_id")
+
+                if not is_admin:
+                    member_check = await db.execute(
+                        select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username)
+                    )
+                    if not member_check.scalar_one_or_none():
+                        continue
+
+                # Находим всех участников
+                members = (
+                    await db.execute(select(ChatMember.username).where(ChatMember.chat_id == chat_id))).scalars().all()
+
+                # Рассылаем всем, кроме самого отправителя
+                for member in members:
+                    if member != username:
+                        await manager.send_to_user(member, {
+                            "action": "typing",
+                            "chat_id": chat_id,
+                            "username": username
+                        })
 
     except (WebSocketDisconnect, Exception) as e:
-        # Если юзер отключился (закрыл клиент или пропал интернет)
+        # Если юзер отключился
         manager.disconnect(websocket, username)
         # 1. Записываем время выхода в базу данных
         current_time = int(time.time())

@@ -1,6 +1,7 @@
 import flet as ft
 import asyncio
 import base64
+import time
 from datetime import datetime
 from network import MessengerNetwork
 from ui.screens.login_screen import LoginScreen
@@ -47,6 +48,9 @@ class MainWindow:
         if self.settings.get("auto_login") and self.settings.get("username"):
             self.auto_connect()
 
+        self.last_typing_sent = 0
+        self.typing_timers = {}
+
     def get_chat_name(self, chat_data: dict) -> str:
         """Форматирует имя чата для отображения, даже если в логинах есть спецсимволы"""
         name = chat_data.get('name', 'Неизвестный чат')
@@ -81,6 +85,8 @@ class MainWindow:
             on_show_restore_callback = self.show_restore_modal
         )
         self.page.add(self.login_screen)
+        self.last_typing_sent = 0
+        self.typing_timers = {}
 
     def show_chat_screen(self):
         self.page.clean()
@@ -93,9 +99,18 @@ class MainWindow:
 
             self.page.run_task(open_task)
 
+        def handle_typing():
+            # Отправляем на сервер максимум 1 раз в 2 секунды
+            import time
+            now = time.time()
+            if now - self.last_typing_sent > 2:
+                self.last_typing_sent = now
+                self.page.run_task(self.network.send, {"action": "typing", "chat_id": self.active_chat_id})
+
         self.chat_screen = ChatScreen(
             current_username=self.current_username,
             on_send_message=self.handle_send_message,
+            on_typing=handle_typing,
             on_attach_file=self.handle_attach_file,
             on_add_member=self.show_add_member_modal,
             on_open_drawer=open_menu,
@@ -237,7 +252,8 @@ class MainWindow:
         self.page.run_task(self.network.send, {"action": "get_chat_members", "chat_id": self.active_chat_id})
 
     def update_chat_header(self):
-        """Умное обновление шапки чата (имени и статуса)"""
+        """Умное обновление шапки чата (имени, статуса и 'печатает...')"""
+        import time
         if not hasattr(self, 'chat_screen'): return
 
         chat_data = self.chats_info.get(self.active_chat_id, {})
@@ -249,24 +265,44 @@ class MainWindow:
         subtitle = ""
         is_online = False
 
-        if chat_data.get('type') == 'dialog':
-            # Достаем имя собеседника
-            users = chat_data.get('name', '').split('_')
-            if len(users) == 2:
-                other_user = users[0] if users[1] == self.current_username else users[1]
-                # Проверяем его статус
-                status = self.users_status.get(other_user, {})
-                if status.get("is_online"):
-                    subtitle = "в сети"
-                    is_online = True
-                elif status.get("last_seen"):
-                    ts = datetime.fromtimestamp(status["last_seen"]).strftime('%H:%M')
-                    subtitle = f"был(а) {ts}"
-                else:
-                    subtitle = "оффлайн"
-        elif is_group:
-            subtitle = "групповой чат"
+        # --- ЛОГИКА ТАЙПИНГА ---
+        now = time.time()
+        # Очищаем тех, кто уже перестал печатать (время вышло)
+        active_typings = {}
+        if self.active_chat_id in self.typing_timers:
+            active_typings = {u: t for u, t in self.typing_timers[self.active_chat_id].items() if t > now}
+            self.typing_timers[self.active_chat_id] = active_typings
 
+        typing_users = list(active_typings.keys())
+
+        # Если кто-то печатает — это ПРИОРИТЕТ над обычным статусом "в сети"
+        if typing_users:
+            is_online = True  # Надпись будет зеленого цвета
+            if len(typing_users) == 1:
+                subtitle = f"{typing_users[0]} печатает..." if is_group else "печатает..."
+            else:
+                subtitle = f"{len(typing_users)} чел. печатают..."
+
+        # Если никто не печатает, показываем стандартный статус
+        else:
+            if chat_data.get('type') == 'dialog':
+                users = chat_data.get('name', '').split('_')
+                if len(users) == 2:
+                    other_user = users[0] if users[1] == self.current_username else users[1]
+                    status = self.users_status.get(other_user, {})
+                    if status.get("is_online"):
+                        subtitle = "в сети"
+                        is_online = True
+                    elif status.get("last_seen"):
+                        from datetime import datetime
+                        ts = datetime.fromtimestamp(status["last_seen"]).strftime('%H:%M')
+                        subtitle = f"был(а) {ts}"
+                    else:
+                        subtitle = "оффлайн"
+            elif is_group:
+                subtitle = "групповой чат"
+
+        # Применяем к UI
         self.chat_screen.set_chat_title(cname, subtitle=subtitle, show_info=is_group, is_online=is_online)
 
     def show_create_group_modal(self):
@@ -306,7 +342,7 @@ class MainWindow:
         dialog.show()
 
     # ==========================================
-    #       РАБОТА С ФАЙЛАМИ (FLET 1.0+ API)
+    #       РАБОТА С ФАЙЛАМИ
     # ==========================================
     def handle_attach_file(self):
         async def pick_task():
@@ -455,8 +491,30 @@ class MainWindow:
                 "is_online": data.get("status") == "online",
                 "last_seen": data.get("last_seen")
             }
-            # Сразу перерисовываем шапку (вдруг мы сейчас в диалоге с этим человеком!)
+            # Сразу перерисовываем шапку
             self.update_chat_header()
+
+        elif action == "typing":
+            import time
+            chat_id = data.get("chat_id")
+            typing_user = data.get("username")
+
+            if chat_id not in self.typing_timers:
+                self.typing_timers[chat_id] = {}
+
+            # Устанавливаем, что надпись будет висеть ровно 3 секунды
+            self.typing_timers[chat_id][typing_user] = time.time() + 3.0
+
+            if chat_id == self.active_chat_id:
+                self.update_chat_header()
+
+            async def clear_typing():
+                import asyncio
+                await asyncio.sleep(3.1)
+                if self.active_chat_id == chat_id:
+                    self.update_chat_header()
+
+            self.page.run_task(clear_typing)
 
         elif action == "chat_members_data":
             # Сервер прислал профиль группы
@@ -507,15 +565,19 @@ class MainWindow:
         for cid, chat in self.chats_info.items():
             if chat.get('type') == 'group':
                 has_groups = True
-                controls.append(ft.ListTile(leading=ft.Icon(ft.Icons.GROUP), title=ft.Text(chat['name']),
-                                            on_click=make_select(cid)))
+                controls.append(
+                    ft.ListTile(leading=ft.Icon(ft.Icons.GROUP),
+                    title=ft.Text(chat['name']),
+                    on_click=make_select(cid)))
         if not has_groups:
             controls.append(ft.Container(padding=15, content=ft.Text("Нет групп", color=ft.Colors.GREY_500)))
 
         # Добавляем избранное
         if saved_id:
-            controls.append(ft.ListTile(leading=ft.Icon(ft.Icons.BOOKMARK), title=ft.Text("Избранное"),
-                                        on_click=make_select(saved_id)))
+            controls.append(
+                ft.ListTile(leading=ft.Icon(ft.Icons.BOOKMARK),
+                title=ft.Text("Избранное"),
+                on_click=make_select(saved_id)))
         controls.append(ft.Divider())
 
         # --- 2. Личные диалоги ---
@@ -537,10 +599,14 @@ class MainWindow:
         controls.append(ft.Divider())
 
         # --- 3. Настройки ---
-        controls.append(ft.ListTile(leading=ft.Icon(ft.Icons.ADD), title=ft.Text("Создать диалог"),
-                                    on_click=lambda e: self.show_pm_modal()))
-        controls.append(ft.ListTile(leading=ft.Icon(ft.Icons.GROUP_ADD), title=ft.Text("Создать группу"),
-                                    on_click=lambda e: self.show_create_group_modal()))
+        controls.append(
+            ft.ListTile(leading=ft.Icon(ft.Icons.ADD),
+            title=ft.Text("Создать диалог"),
+            on_click=lambda e: self.show_pm_modal()))
+        controls.append(
+            ft.ListTile(leading=ft.Icon(ft.Icons.GROUP_ADD),
+            title=ft.Text("Создать группу"),
+            on_click=lambda e: self.show_create_group_modal()))
 
         if not self.page.drawer:
             self.page.drawer = ft.NavigationDrawer(controls=controls)

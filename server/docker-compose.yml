@@ -15,7 +15,7 @@ services:
 
   server:
     image: ghcr.io/sharproma/simple-messenger/server:1.2
-    container_name: messenger_server_v2
+    container_name: messenger_server
     restart: always
     ports:
       - "8989:8888"
