@@ -15,6 +15,7 @@ from ui.dialogs.add_member_dialog import AddMemberDialog
 
 from ui.dialogs.chat_profile_dialog import ChatProfileDialog
 from ui.dialogs.restore_dialog import RestoreDialog
+from ui.dialogs.media_dialog import MediaDialog
 
 class MainWindow:
     def __init__(self, page: ft.Page, system_adapter, settings_manager):
@@ -112,7 +113,6 @@ class MainWindow:
             on_send_message=self.handle_send_message,
             on_typing=handle_typing,
             on_attach_file=self.handle_attach_file,
-            on_add_member=self.show_add_member_modal,
             on_open_drawer=open_menu,
             on_toggle_pin=self.handle_toggle_pin,
             on_copy_message=self.handle_copy_message,
@@ -120,7 +120,9 @@ class MainWindow:
             on_download_file=self.handle_download_file,
             on_input_focus=lambda: self.os.set_tray_badge(False),
             on_open_profile = self.handle_open_profile,
-            on_load_more_history=self.handle_load_more_history
+            on_load_more_history=self.handle_load_more_history,
+            on_get_media_url=self.get_media_url,
+            on_open_media=self.show_media_modal
         )
         self.page.add(self.chat_screen)
 
@@ -339,6 +341,15 @@ class MainWindow:
             self.show_login_screen()
 
         dialog = SettingsDialog(self.page, self.settings, on_settings_changed, on_logout)
+        dialog.show()
+
+    def get_media_url(self, msg_id: int) -> str:
+        """Генерирует прямую ссылку на скачивание файла с вшитым токеном"""
+        return f"{self.network.api_url}/messages/files/{msg_id}?token={self.network.token}"
+
+    def show_media_modal(self, media_url: str, is_video: bool, filename: str):
+        """Открывает окно просмотра медиа с зумом или плеером"""
+        dialog = MediaDialog(self.page, media_url, is_video, filename)
         dialog.show()
 
     # ==========================================

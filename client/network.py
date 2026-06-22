@@ -25,9 +25,13 @@ class MessengerNetwork:
     async def connect(self, host, port, username, password, mode="login", secret=""):
         self.host = host
         self.port = port
-        # ВНИМАНИЕ: Теперь мы используем HTTPS и WSS!
-        self.api_url = f"https://{host}:{port}/api"
-        self.ws_url = f"wss://{host}:{port}/ws"
+
+        if host in ["127.0.0.1", "localhost"]:
+            self.api_url = f"http://{host}:{port}/api"
+            self.ws_url = f"ws://{host}:{port}/ws"
+        else:
+            self.api_url = f"https://{host}:{port}/api"
+            self.ws_url = f"wss://{host}:{port}/ws"
 
         # Отключаем проверку сертификата в httpx (verify=False)
         async with httpx.AsyncClient(verify=False) as client:
@@ -128,9 +132,12 @@ class MessengerNetwork:
                 print(f"Network REST Error ({action}): {e}")
 
     async def listen(self):
+        """Бесконечное прослушивание входящих сообщений по WebSocket"""
         try:
-            # ВНИМАНИЕ: Передаем наш ssl_context для WSS-соединения!
-            async with websockets.connect(f"{self.ws_url}?token={self.token}", ssl=self.ssl_context) as ws:
+            # --- ИСПРАВЛЕНО: Умная подстановка SSL ---
+            ssl_ctx = self.ssl_context if self.ws_url.startswith("wss://") else None
+
+            async with websockets.connect(f"{self.ws_url}?token={self.token}", ssl=ssl_ctx) as ws:
                 self.ws = ws
                 while True:
                     message = await ws.recv()
