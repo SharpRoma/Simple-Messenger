@@ -32,7 +32,15 @@ class MessengerNetwork:
         # Отключаем проверку сертификата в httpx (verify=False)
         async with httpx.AsyncClient(verify=False) as client:
             try:
-                if mode == "register":
+                if mode == "reset":
+                    res = await client.post(f"{self.api_url}/auth/reset-password", json={
+                        "username": username, "new_password": password, "secret": secret
+                    })
+                    if res.status_code != 200:
+                        return {"status": "error", "msg": res.json().get("detail", "Ошибка сброса")}
+                    return {"status": "ok"}
+
+                elif mode == "register":
                     res = await client.post(f"{self.api_url}/auth/register", json={
                         "username": username, "password": password, "secret": secret
                     })

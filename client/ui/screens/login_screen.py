@@ -2,13 +2,14 @@ import flet as ft
 
 
 class LoginScreen(ft.Container):
-    def __init__(self, settings: dict, on_login_callback, on_show_register_callback):
+    def __init__(self, settings: dict, on_login_callback, on_show_register_callback, on_show_restore_callback):
         super().__init__()
         self.settings = settings
 
         # Коллбэки
         self.on_login_callback = on_login_callback
         self.on_show_register_callback = on_show_register_callback
+        self.on_show_restore_callback = on_show_restore_callback
 
         # Настройки самого контейнера, чтобы он занял весь экран и был по центру
         self.expand = True
@@ -58,7 +59,7 @@ class LoginScreen(ft.Container):
         self.content = ft.Column(
             controls=[
                 ft.Text("Messenger", size=24, weight="bold"),
-                server_row,  # <--- ТЕПЕРЬ ТУТ РЯД (IP + Порт)
+                server_row,
                 self.user_input,
                 self.pass_input,
                 checkbox_row,
@@ -69,6 +70,13 @@ class LoginScreen(ft.Container):
                         ft.TextButton("Регистрация", on_click=lambda e: self.on_show_register_callback())
                     ],
                     alignment=ft.MainAxisAlignment.CENTER
+                ),
+                ft.TextButton(
+                    "Забыли пароль?",
+                    icon=ft.Icons.LOCK_RESET,
+                    icon_color=ft.Colors.GREY_500,
+                    style=ft.ButtonStyle(color=ft.Colors.GREY_500),
+                    on_click=lambda e: self.on_show_restore_callback()
                 )
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,

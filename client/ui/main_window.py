@@ -1,6 +1,7 @@
 import flet as ft
 import asyncio
 import base64
+from datetime import datetime
 from network import MessengerNetwork
 from ui.screens.login_screen import LoginScreen
 from ui.screens.chat_screen import ChatScreen
@@ -12,7 +13,7 @@ from ui.dialogs.create_group_dialog import CreateGroupDialog
 from ui.dialogs.add_member_dialog import AddMemberDialog
 
 from ui.dialogs.chat_profile_dialog import ChatProfileDialog
-from datetime import datetime # Понадобится для форматирования времени
+from ui.dialogs.restore_dialog import RestoreDialog
 
 class MainWindow:
     def __init__(self, page: ft.Page, system_adapter, settings_manager):
@@ -64,16 +65,17 @@ class MainWindow:
         self.page.drawer = None
         self.is_logged_in = False
 
-        # --- Чистим кэш прошлого аккаунта ---
         self.current_username = ""
         self.active_chat_id = 1
         self.chats_info = {}
         self.pending_downloads = {}
+        self.users_status = {}
 
         self.login_screen = LoginScreen(
             settings=self.settings,
             on_login_callback=self.handle_login,
-            on_show_register_callback=self.show_register_modal
+            on_show_register_callback=self.show_register_modal,
+            on_show_restore_callback = self.show_restore_modal
         )
         self.page.add(self.login_screen)
 
@@ -192,6 +194,31 @@ class MainWindow:
             return True, ""
 
         dialog = RegisterDialog(self.page, current_host, current_port, on_register)
+        dialog.show()
+
+    def show_restore_modal(self):
+        current_host = self.login_screen.host_input.value.strip()
+        current_port = self.login_screen.port_input.value.strip() or "8888"
+
+        async def on_restore(host, port, username, password, secret):
+            response = await self.network.connect(host, int(port), username, password, mode="reset", secret=secret)
+            if response.get("status") != "ok":
+                return False, response.get('msg', 'Неизвестная ошибка')
+
+            # Успешно сбросили! Подставляем новые данные в форму входа
+            self.login_screen.host_input.value = host
+            self.login_screen.port_input.value = port
+            self.login_screen.user_input.value = username
+            self.login_screen.pass_input.value = password
+            self.page.update()
+
+            self.show_snackbar("Пароль изменен! Выполняется вход...", ft.Colors.GREEN)
+
+            # Сразу логинимся с новым паролем
+            self.handle_login(host, port, username, password, self.login_screen.auto_login_checkbox.value)
+            return True, ""
+
+        dialog = RestoreDialog(self.page, current_host, current_port, on_restore)
         dialog.show()
 
     def show_pm_modal(self):

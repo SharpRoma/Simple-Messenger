@@ -12,3 +12,8 @@ class UserLogin(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+class UserReset(BaseModel):
+    username: str
+    secret: str
+    new_password: str

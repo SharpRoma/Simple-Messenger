@@ -7,7 +7,7 @@ from core.config import settings
 from core.security import hash_password, verify_password, create_access_token
 from models.user import User
 from models.chat import Chat, ChatMember
-from schemas.auth import UserRegister, UserLogin, TokenResponse
+from schemas.auth import UserRegister, UserLogin, TokenResponse, UserReset
 
 # Создаем роутер
 router = APIRouter(prefix="/auth", tags=["Авторизация"])
@@ -51,3 +51,20 @@ async def login(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
 
     token = create_access_token({"sub": user.username})
     return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/reset-password")
+async def reset_password(data: UserReset, db: AsyncSession = Depends(get_db)):
+    if data.secret != settings.server_secret:
+        raise HTTPException(status_code=400, detail="Неверный секретный код сервера")
+
+    result = await db.execute(select(User).where(User.username == data.username))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    user.password = hash_password(data.new_password)
+    await db.commit()
+
+    return {"status": "ok", "msg": "Пароль успешно изменен"}
