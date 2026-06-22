@@ -73,12 +73,15 @@ class MessengerNetwork:
                     if res.status_code == 200:
                         await self.on_message_received({"action": "chat_list", "chats": res.json().get("chats")})
 
+
                 elif action == "get_history":
                     chat_id = data.get("chat_id")
-                    res = await client.get(f"{self.api_url}/messages/{chat_id}?limit={data.get('limit', 50)}",
+                    limit = data.get("limit", 20)
+                    offset = data.get("offset", 0)  # <--- Получаем сдвиг от интерфейса
+                    res = await client.get(f"{self.api_url}/messages/{chat_id}?limit={limit}&offset={offset}",
                                            headers=headers)
                     if res.status_code == 200:
-                        await self.on_message_received({"action": "history", **res.json()})
+                        await self.on_message_received({"action": "history", "offset": offset, **res.json()})
 
                 elif action == "create_dialog":
                     res = await client.post(f"{self.api_url}/chats/dialog",

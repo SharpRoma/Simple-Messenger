@@ -26,6 +26,9 @@ class MainWindow:
         self.active_chat_id = 1
         self.chats_info = {}
         self.users_status = {}
+        self.history_offset = 0
+        self.is_loading_history = False
+        self.has_more_history = True
         self.pending_downloads = {}
 
         self.network = MessengerNetwork(self.on_net_message, self.on_net_disconnect)
@@ -101,7 +104,8 @@ class MainWindow:
             on_delete_message=self.handle_delete_message,
             on_download_file=self.handle_download_file,
             on_input_focus=lambda: self.os.set_tray_badge(False),
-            on_open_profile = self.handle_open_profile
+            on_open_profile = self.handle_open_profile,
+            on_load_more_history=self.handle_load_more_history
         )
         self.page.add(self.chat_screen)
 
@@ -419,23 +423,30 @@ class MainWindow:
             if action == "member_added":
                 self.show_snackbar("Участник успешно добавлен!")
 
+
         elif action == "history":
-            self.chat_screen.clear_messages()
-            messages, chat_id = data.get("messages", []), data.get("chat_id")
+            messages = data.get("messages", [])
+            chat_id = data.get("chat_id")
+            offset = data.get("offset", 0)  # Читаем сдвиг, который мы же и отправили!
 
-            chat_data = self.chats_info.get(chat_id, {})
-            cname = self.get_chat_name(chat_data) if chat_data else f"ID:{chat_id}"
-            is_group = chat_data.get('type') == 'group'
+            # Если сервер прислал меньше 20 сообщений, значит мы дошли до самого начала истории
+            if len(messages) < 20:
+                self.has_more_history = False
 
-            self.chat_screen.set_chat_title(cname, is_group)
-            for msg in messages:
-                self.chat_screen.add_message(
-                    sender=msg['sender'],
-                    text=msg.get('text', ''),
-                    timestamp=msg['timestamp'],
-                    msg_id=msg.get('id'),
-                    file_name=msg.get('file_name')
-                )
+            if offset == 0:
+                # Первая страница
+                self.chat_screen.clear_messages()
+                self.update_chat_header()
+                for msg in messages:
+                    self.chat_screen.add_message(
+                        sender=msg['sender'], text=msg.get('text', ''),
+                        timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name')
+                    )
+            else:
+                # Подгрузка СТАРЫХ сообщений
+                if messages:
+                    self.chat_screen.prepend_messages(messages)
+            self.is_loading_history = False  # Снимаем блокировку, можно крутить дальше
 
         elif action == "status":
             # Сервер прислал чей-то статус
@@ -539,13 +550,31 @@ class MainWindow:
         self.page.update()
 
     def handle_select_chat(self, chat_id):
-        async def close_task():
-            if self.page.drawer:
-                await self.page.close_drawer()
-
-        # Закрываем меню асинхронно
-        self.page.run_task(close_task)
+        if self.page.drawer:
+            self.page.drawer.open = False
+            self.page.update()
 
         self.active_chat_id = chat_id
         self.os.set_tray_badge(False)
-        self.page.run_task(self.network.send, {"action": "get_history", "chat_id": chat_id, "limit": 20})
+
+        self.history_offset = 0
+        self.is_loading_history = True  # Блокируем скролл, пока не придет первая пачка
+        self.has_more_history = True
+
+        self.page.run_task(self.network.send, {"action": "get_history", "chat_id": chat_id, "limit": 20, "offset": 0})
+
+    def handle_load_more_history(self):
+        # Если мы уже грузим историю или её больше нет — ничего не делаем
+        if self.is_loading_history or not self.has_more_history:
+            return
+
+        self.is_loading_history = True
+        self.history_offset += 20
+
+        # Просим сервер прислать старые сообщения
+        self.page.run_task(self.network.send, {
+            "action": "get_history",
+            "chat_id": self.active_chat_id,
+            "limit": 20,
+            "offset": self.history_offset
+        })
