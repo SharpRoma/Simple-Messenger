@@ -1,10 +1,18 @@
 import flet as ft
 import config
+import platform
+import logging
+from system.logger import setup_logger
 from system.factory import get_system_adapter
 from ui.main_window import MainWindow
 
+# Инициализируем логирование на клиенте
+setup_logger(config.APP_DIR)
+logger = logging.getLogger("messenger.main")
+
 
 def main(page: ft.Page):
+    logger.info("Запуск приложения клиента...")
     # 1. Автогенерация иконок (вызывается из config перед стартом GUI)
     config.create_icons_if_needed()
 
@@ -16,7 +24,6 @@ def main(page: ft.Page):
     # 3. Настройка окна Flet
     page.title = "Simple Messenger"
 
-    import platform
     page.window.icon = "icon.ico" if platform.system() == "Windows" else "icon.png"
 
     # ПЕРЕХВАТЫВАЕМ КРЕСТИК ТОЛЬКО НА WINDOWS (ради системного трея)

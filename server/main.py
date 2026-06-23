@@ -1,17 +1,23 @@
+import logging
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from core.database import init_db
+from core.logger import setup_logger
 from api.routes import auth, chat_ws, chats, messages
+
+# Инициализируем логирование
+setup_logger()
+logger = logging.getLogger("messenger.main")
 
 # Lifespan: код, который выполняется один раз при запуске сервера
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Подключение к базе данных и создание таблиц...")
+    logger.info("Подключение к базе данных и создание таблиц...")
     await init_db()
-    print("База данных готова!")
+    logger.info("База данных готова!")
     yield
-    print("Сервер выключается...")
+    logger.info("Сервер выключается...")
 
 # Создаем само приложение FastAPI
 app = FastAPI(

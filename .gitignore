@@ -8,3 +8,6 @@ AppIcon.icns
 server/data/
 client/settings.json
 .DS_Store
+/logs/
+/uploads/
+/dist/

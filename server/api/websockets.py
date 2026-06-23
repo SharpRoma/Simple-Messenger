@@ -1,5 +1,8 @@
+import logging
 from fastapi import WebSocket
 import json
+
+logger = logging.getLogger("messenger.websockets")
 
 class ConnectionManager:
     def __init__(self):
@@ -14,14 +17,14 @@ class ConnectionManager:
         if username not in self.active_connections:
             self.active_connections[username] = set()
         self.active_connections[username].add(websocket)
-        print(f"[Онлайн] {username} подключился.")
+        logger.info(f"[Онлайн] {username} подключился.")
 
     def disconnect(self, websocket: WebSocket, username: str):
         if username in self.active_connections:
             self.active_connections[username].discard(websocket)
             if not self.active_connections[username]:
                 del self.active_connections[username]
-        print(f"[Оффлайн] {username} отключился.")
+        logger.info(f"[Оффлайн] {username} отключился.")
 
     async def send_to_user(self, username: str, message: dict):
         """Отправляет JSON-сообщение всем активным сессиям пользователя"""

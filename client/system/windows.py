@@ -3,7 +3,10 @@ import os
 import pystray
 from PIL import Image
 import flet as ft
+import logging
 from .base import SystemAdapter
+
+logger = logging.getLogger("messenger.system.windows")
 
 
 class WindowsAdapter(SystemAdapter):
@@ -85,7 +88,7 @@ class WindowsAdapter(SystemAdapter):
                 # Встроенные нативные уведомления pystray (без plyer!)
                 self.tray_icon.notify(text, title=title)
         except Exception as e:
-            print(f"Win Notification Error: {e}")
+            logger.error(f"Win Notification Error: {e}")
 
     def set_tray_badge(self, has_unread: bool):
         if self.tray_icon:

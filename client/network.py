@@ -3,6 +3,9 @@ import websockets
 import json
 import traceback
 import ssl
+import logging
+
+logger = logging.getLogger("messenger.network")
 
 
 class MessengerNetwork:
@@ -59,7 +62,7 @@ class MessengerNetwork:
                 self.token = res.json().get("access_token")
                 return {"status": "ok"}
             except Exception as e:
-                print(f"Connection Error: {e}")
+                logger.error(f"Connection Error: {e}")
                 return {"status": "error", "msg": "Сервер недоступен"}
 
     async def send(self, data: dict):
@@ -129,7 +132,7 @@ class MessengerNetwork:
                         await self.on_message_received({"action": "member_added"})
 
             except Exception as e:
-                print(f"Network REST Error ({action}): {e}")
+                logger.error(f"Network REST Error ({action}): {e}")
 
     async def listen(self):
         """Бесконечное прослушивание входящих сообщений по WebSocket"""
@@ -143,8 +146,7 @@ class MessengerNetwork:
                     message = await ws.recv()
                     await self.on_message_received(json.loads(message))
         except Exception as e:
-            print("\n--- ОБРЫВ СВЯЗИ (WebSocket) ---")
-            traceback.print_exc()
+            logger.error("ОБРЫВ СВЯЗИ (WebSocket)", exc_info=True)
             await self.on_disconnected()
 
     async def disconnect(self):

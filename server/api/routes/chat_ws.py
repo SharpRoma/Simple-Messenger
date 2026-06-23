@@ -2,15 +2,12 @@ import json
 import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from core.database import get_db
 from api.dependencies import get_username_from_token
 from api.websockets import manager
-from models.message import Message
-from models.chat import ChatMember
-from models.user import User
 from core.database import async_session_maker
+from core import crud
 
 
 router = APIRouter(tags=["WebSockets"])
@@ -26,9 +23,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
         return
 
     # --- Узнаем, админ ли это ---
-    user_obj = await db.execute(select(User).where(User.username == username))
-    user = user_obj.scalar_one_or_none()
-    is_admin = user.is_admin if user else False
+    is_admin = await crud.is_user_admin(db, username)
 
     # 2. Регистрируем пользователя как "Онлайн"
     await manager.connect(websocket, username)
@@ -49,27 +44,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
                 text = data.get("text")
 
                 # Проверяем, состоит ли юзер в чате
-                member_check = await db.execute(
-                    select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username)
-                )
-                # --- Пропускаем проверку, если это админ ---
                 if not is_admin:
-                    member_check = await db.execute(
-                        select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username)
-                    )
-                    if not member_check.scalar_one_or_none():
+                    if not await crud.is_user_in_chat(db, chat_id, username):
                         continue
 
                 # Сохраняем сообщение в БД
-                new_msg = Message(
-                    chat_id=chat_id,
-                    sender=username,
-                    text=text,
-                    timestamp=int(time.time())
-                )
-                db.add(new_msg)
-                await db.commit()
-                await db.refresh(new_msg)
+                new_msg = await crud.create_message(db, chat_id, username, text)
 
                 msg_obj = {
                     "id": new_msg.id,
@@ -80,8 +60,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
                 }
 
                 # Находим всех участников чата
-                members_result = await db.execute(select(ChatMember.username).where(ChatMember.chat_id == chat_id))
-                members = members_result.scalars().all()
+                members = await crud.get_chat_member_usernames(db, chat_id)
 
                 # Рассылаем всем участникам
                 for member in members:
@@ -95,15 +74,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
                 chat_id = data.get("chat_id")
 
                 if not is_admin:
-                    member_check = await db.execute(
-                        select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username)
-                    )
-                    if not member_check.scalar_one_or_none():
+                    if not await crud.is_user_in_chat(db, chat_id, username):
                         continue
 
                 # Находим всех участников
-                members = (
-                    await db.execute(select(ChatMember.username).where(ChatMember.chat_id == chat_id))).scalars().all()
+                members = await crud.get_chat_member_usernames(db, chat_id)
 
                 # Рассылаем всем, кроме самого отправителя
                 for member in members:
@@ -120,10 +95,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
         # 1. Записываем время выхода в базу данных
         current_time = int(time.time())
         async with async_session_maker() as session:
-            db_user = await session.get(User, username)
-            if db_user:
-                db_user.last_seen = current_time
-                await session.commit()
+            await crud.update_user_last_seen(session, username, current_time)
 
         # 2. Сообщаем всем, что юзер вышел (и передаем время выхода)
         # Рассылаем статус offline только если юзер закрыл ВСЕ свои вкладки/устройства

@@ -113,7 +113,6 @@ class MainWindow:
         def handle_typing():
             if not self.active_chat_id: return
             # Отправляем на сервер максимум 1 раз в 2 секунды
-            import time
             now = time.time()
             if now - self.last_typing_sent > 2:
                 self.last_typing_sent = now
@@ -267,7 +266,6 @@ class MainWindow:
 
     def update_chat_header(self):
         """Умное обновление шапки чата (имени, статуса и 'печатает...')"""
-        import time
         if not hasattr(self, 'chat_screen'): return
 
         chat_data = self.chats_info.get(self.active_chat_id, {})
@@ -308,7 +306,6 @@ class MainWindow:
                         subtitle = "в сети"
                         is_online = True
                     elif status.get("last_seen"):
-                        from datetime import datetime
                         ts = datetime.fromtimestamp(status["last_seen"]).strftime('%H:%M')
                         subtitle = f"был(а) {ts}"
                     else:
@@ -426,7 +423,7 @@ class MainWindow:
 
         # Пытаемся переподключиться тихо (в фоне)
         response = await self.network.connect(
-            self.settings.get("host"), 8888,
+            self.settings.get("host"), int(self.settings.get("port", 8888)),
             self.settings.get("username"),
             self.settings.get("password")
         )
@@ -540,7 +537,6 @@ class MainWindow:
             self.update_chat_header()
 
         elif action == "typing":
-            import time
             chat_id = data.get("chat_id")
             typing_user = data.get("username")
 
@@ -554,7 +550,6 @@ class MainWindow:
                 self.update_chat_header()
 
             async def clear_typing():
-                import asyncio
                 await asyncio.sleep(3.1)
                 if self.active_chat_id == chat_id:
                     self.update_chat_header()

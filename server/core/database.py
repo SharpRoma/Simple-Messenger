@@ -1,3 +1,4 @@
+import logging
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy import select
 from .config import settings
@@ -5,6 +6,8 @@ from models import Base, Chat
 from models.user import User
 from core.security import hash_password
 from core.config import settings
+
+logger = logging.getLogger("messenger.database")
 
 # Создаем асинхронное подключение
 engine = create_async_engine(settings.database_url, echo=False)
@@ -28,7 +31,7 @@ async def init_db():
             )
             session.add(admin_user)
             await session.commit()
-            print("Пользователь 'admin' успешно создан")
+            logger.info("Пользователь 'admin' успешно создан")
 
 # Зависимость (Dependency) для FastAPI
 # Эта функция будет выдавать сессию БД каждый раз, когда кто-то дергает ручку

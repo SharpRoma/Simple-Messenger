@@ -167,7 +167,6 @@ class ChatScreen(ft.Container):
             pass
 
     def _create_message_row(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None):
-        from datetime import datetime
         ts = datetime.fromtimestamp(timestamp).strftime('%H:%M')
         is_own = (sender == self.current_username)
         actions = []

@@ -1,6 +1,9 @@
 import subprocess
 import flet as ft
+import logging
 from .base import SystemAdapter
+
+logger = logging.getLogger("messenger.system.macos")
 
 class MacOSAdapter(SystemAdapter):
     def notify(self, title: str, text: str):
@@ -19,7 +22,7 @@ class MacOSAdapter(SystemAdapter):
                 "--", text, title
             ])
         except Exception as e:
-            print(f"Mac Notification Error: {e}")
+            logger.error(f"Mac Notification Error: {e}")
 
     def set_tray_badge(self, has_unread: bool):
         # На MacOS badge для Flet пока реализован слабо,

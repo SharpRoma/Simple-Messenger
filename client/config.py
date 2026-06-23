@@ -4,9 +4,12 @@ import json
 import platform
 import shutil
 from pathlib import Path
+import logging
 
 from PIL import Image, ImageDraw
 import keyring
+
+logger = logging.getLogger("messenger.config")
 
 
 # --- ВЕРСИЯ ПРИЛОЖЕНИЯ ---
@@ -101,7 +104,7 @@ def create_icons_if_needed():
         # Записываем версию, чтобы больше не перерисовывать до следующего обновления
         version_file.write_text(APP_VERSION)
     except Exception as e:
-        print(f"Ошибка при обработке иконок: {e}")
+        logger.error(f"Ошибка при обработке иконок: {e}")
 
 
 # --- НАСТРОЙКИ И БЕЗОПАСНОСТЬ ---
@@ -121,7 +124,7 @@ def load_settings():
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 default_settings.update(json.load(f))
         except Exception as e:
-            print(f"Ошибка чтения настроек: {e}")
+            logger.error(f"Ошибка чтения настроек: {e}")
 
     if default_settings.get("auto_login") and default_settings.get("username"):
         try:
@@ -152,7 +155,7 @@ def save_settings(settings):
             except keyring.errors.PasswordDeleteError:
                 pass
     except Exception as e:
-        print(f"Ошибка записи в хранилище ключей: {e}")
+        logger.error(f"Ошибка записи в хранилище ключей: {e}")
 
 
 # --- АВТОЗАПУСК ---
