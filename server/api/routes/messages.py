@@ -38,7 +38,7 @@ async def get_history(chat_id: int, limit: int = 50, offset: int = 0, username: 
     messages = result.scalars().all()
 
     # Разворачиваем, чтобы старые были сверху
-    msg_list = [{"id": m.id, "sender": m.sender, "text": m.text, "file_name": m.file_name, "timestamp": m.timestamp} for
+    msg_list = [{"id": m.id, "sender": m.sender, "text": m.text, "file_name": m.file_name, "timestamp": m.timestamp, "updated_at": m.updated_at} for
                 m in reversed(messages)]
     return {"chat_id": chat_id, "messages": msg_list}
 
@@ -74,7 +74,7 @@ async def upload_file(
 
     # Рассылаем уведомление в сокеты
     msg_obj = {"id": new_msg.id, "sender": new_msg.sender, "text": "", "file_name": new_msg.file_name,
-               "timestamp": new_msg.timestamp}
+               "timestamp": new_msg.timestamp, "updated_at": None}
     members = (await db.execute(select(ChatMember.username).where(ChatMember.chat_id == chat_id))).scalars().all()
 
     for member in members:
@@ -120,3 +120,75 @@ async def delete_message(msg_id: int, username: str = Depends(get_current_user),
         await manager.send_to_user(member, {"action": "msg_deleted", "chat_id": chat_id, "msg_id": msg_id})
 
     return {"status": "ok"}
+
+
+@router.put("/{msg_id}")
+async def edit_message(
+    msg_id: int,
+    text: str = Form(None),
+    delete_file: bool = Form(False),
+    file: UploadFile = File(None),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Редактирование сообщения и его файлов"""
+    msg = (await db.execute(select(Message).where(Message.id == msg_id))).scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Сообщение не найдено")
+ 
+    # Редактировать может только автор
+    if msg.sender != username:
+        raise HTTPException(status_code=403, detail="Вы не можете редактировать чужие сообщения")
+ 
+    # 1. Удаление файла или его замена
+    if delete_file or file:
+        msg.file_name = None
+        msg.file_path = None
+        # (SQLAlchemy event listener сам удалит файл с диска при коммите, 
+        # так как мы очищаем file_path или удаляем запись)
+ 
+    # 2. Если загружается новый файл
+    if file:
+        ext = os.path.splitext(file.filename)[1]
+        unique_name = f"{uuid.uuid4()}{ext}"
+        file_path = os.path.join(UPLOAD_DIR, unique_name)
+ 
+        with open(file_path, "wb") as buffer:
+            while chunk := await file.read(1024 * 1024):
+                buffer.write(chunk)
+ 
+        msg.file_name = file.filename
+        msg.file_path = file_path
+ 
+    # 3. Обновляем текст
+    if text is not None:
+        msg.text = text
+ 
+    # 4. Проверяем, не пустое ли сообщение
+    if not msg.text and not msg.file_name:
+        raise HTTPException(status_code=400, detail="Сообщение не может быть пустым")
+ 
+    # Записываем время изменения
+    msg.updated_at = int(time.time())
+    await db.commit()
+    await db.refresh(msg)
+ 
+    # Рассылаем уведомление о редактировании всем участникам
+    msg_obj = {
+        "id": msg.id,
+        "sender": msg.sender,
+        "text": msg.text,
+        "file_name": msg.file_name,
+        "timestamp": msg.timestamp,
+        "updated_at": msg.updated_at
+    }
+ 
+    members = (await db.execute(select(ChatMember.username).where(ChatMember.chat_id == msg.chat_id))).scalars().all()
+    for member in members:
+        await manager.send_to_user(member, {
+            "action": "msg_edited",
+            "chat_id": msg.chat_id,
+            "message": msg_obj
+        })
+ 
+    return {"status": "ok", "message": msg_obj}

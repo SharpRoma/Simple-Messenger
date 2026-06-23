@@ -11,3 +11,5 @@ client/settings.json
 /logs/
 /uploads/
 /dist/
+/test_db.sqlite
+/server/logs/

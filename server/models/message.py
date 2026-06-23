@@ -20,6 +20,7 @@ class Message(Base):
     file_path: Mapped[str] = mapped_column(String, nullable=True)
 
     timestamp: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=True)
 
 
 @event.listens_for(Message, 'after_delete')

@@ -7,6 +7,7 @@ class MessageResponse(BaseModel):
     text: Optional[str] = None
     file_name: Optional[str] = None
     timestamp: int
+    updated_at: Optional[int] = None
 
 class HistoryResponse(BaseModel):
     chat_id: int

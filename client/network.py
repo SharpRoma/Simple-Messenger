@@ -99,6 +99,37 @@ class MessengerNetwork:
                 elif action == "delete_msg":
                     await client.delete(f"{self.api_url}/messages/{data.get('msg_id')}", headers=headers)
 
+                elif action == "edit_msg":
+                    msg_id = data.get("msg_id")
+                    text = data.get("text")
+                    delete_file = data.get("delete_file", False)
+                    new_filepath = data.get("new_filepath")
+                    new_filename = data.get("new_filename")
+
+                    form_data = {
+                        "text": text if text is not None else "",
+                        "delete_file": "true" if delete_file else "false"
+                    }
+
+                    files = None
+                    f = None
+                    if new_filepath:
+                        f = open(new_filepath, "rb")
+                        files = {"file": (new_filename, f)}
+
+                    try:
+                        res = await client.put(
+                            f"{self.api_url}/messages/{msg_id}",
+                            data=form_data,
+                            files=files,
+                            headers=headers
+                        )
+                        if res.status_code != 200:
+                            logger.error(f"Error editing message REST status: {res.status_code}")
+                    finally:
+                        if f:
+                            f.close()
+
                 elif action == "get_chat_members":
                     res = await client.get(f"{self.api_url}/chats/{data.get('chat_id')}/members", headers=headers)
                     if res.status_code == 200:

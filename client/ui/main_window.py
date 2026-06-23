@@ -54,6 +54,10 @@ class MainWindow:
         self.last_typing_sent = 0
         self.typing_timers = {}
 
+        self.editing_msg_id = None
+        self.editing_delete_file = False
+        self.editing_new_file = None
+
     def get_chat_name(self, chat_data: dict) -> str:
         """Форматирует имя чата для отображения, даже если в логинах есть спецсимволы"""
         name = chat_data.get('name', 'Неизвестный чат')
@@ -133,7 +137,10 @@ class MainWindow:
             on_open_profile = self.handle_open_profile,
             on_load_more_history=self.handle_load_more_history,
             on_get_media_url=self.get_media_url,
-            on_open_media=self.show_media_modal
+            on_open_media=self.show_media_modal,
+            on_edit_message=self.handle_edit_message,
+            on_cancel_edit=self.handle_cancel_edit,
+            on_delete_attached_file=self.handle_delete_attached_file
         )
         self.page.add(self.chat_screen)
 
@@ -178,15 +185,32 @@ class MainWindow:
     def handle_send_message(self, text: str):
         if not self.active_chat_id: return
         async def send_task():
-            if text.startswith('/'):
-                parts = text.split()
-                cmd = parts[0].lower()
-                if cmd == '/chats':
-                    self.page.run_task(self.network.send, {"action": "get_chats"})
-                elif cmd == '/pm' and len(parts) > 1:
-                    await self.network.send({"action": "create_dialog", "target": parts[1]})
+            if self.editing_msg_id is not None:
+                msg_id = self.editing_msg_id
+                delete_file = self.editing_delete_file
+                new_filepath = self.editing_new_file
+                new_filename = getattr(self, "editing_new_filename", None)
+                
+                self.handle_cancel_edit()
+                
+                await self.network.send({
+                    "action": "edit_msg",
+                    "msg_id": msg_id,
+                    "text": text,
+                    "delete_file": delete_file,
+                    "new_filepath": new_filepath,
+                    "new_filename": new_filename
+                })
             else:
-                await self.network.send({"action": "send_msg", "chat_id": self.active_chat_id, "text": text})
+                if text.startswith('/'):
+                    parts = text.split()
+                    cmd = parts[0].lower()
+                    if cmd == '/chats':
+                        self.page.run_task(self.network.send, {"action": "get_chats"})
+                    elif cmd == '/pm' and len(parts) > 1:
+                        await self.network.send({"action": "create_dialog", "target": parts[1]})
+                else:
+                    await self.network.send({"action": "send_msg", "chat_id": self.active_chat_id, "text": text})
 
         self.page.run_task(send_task)
 
@@ -373,15 +397,29 @@ class MainWindow:
                 if not files: return
                 f = files[0]
 
-                self.show_snackbar(f"Отправка файла {f.name}...")
-
-                # БОЛЬШЕ НЕТ BASE64! Передаем просто f.path
-                await self.network.send({
-                    "action": "send_file",
-                    "chat_id": self.active_chat_id,
-                    "filename": f.name,
-                    "filepath": f.path  # <--- ВОТ ТУТ
-                })
+                if self.editing_msg_id is not None:
+                    self.editing_new_file = f.path
+                    self.editing_new_filename = f.name
+                    self.editing_delete_file = False
+                    
+                    label_val = self.chat_screen.edit_label.value
+                    if " | 📎" in label_val:
+                        label_val = label_val.split(" | 📎")[0]
+                    elif " (файл удален)" in label_val:
+                        label_val = label_val.replace(" (файл удален)", "")
+                    
+                    self.chat_screen.edit_label.value = label_val + f" | 📎 -> {f.name}"
+                    self.chat_screen.delete_attached_file_btn.visible = True
+                    self.chat_screen.edit_panel.update()
+                    self.show_snackbar(f"Файл {f.name} выбран для замены!")
+                else:
+                    self.show_snackbar(f"Отправка файла {f.name}...")
+                    await self.network.send({
+                        "action": "send_file",
+                        "chat_id": self.active_chat_id,
+                        "filename": f.name,
+                        "filepath": f.path
+                    })
             except Exception as ex:
                 self.show_snackbar("Ошибка при чтении файла!")
 
@@ -407,6 +445,34 @@ class MainWindow:
         if not self.active_chat_id: return
         self.page.run_task(self.network.send,
                            {"action": "delete_msg", "chat_id": self.active_chat_id, "msg_id": msg_id})
+
+    def handle_edit_message(self, msg_id, text, file_name):
+        self.editing_msg_id = msg_id
+        self.editing_delete_file = False
+        self.editing_new_file = None
+        self.chat_screen.start_edit_mode(text, file_name)
+
+    def handle_cancel_edit(self):
+        self.editing_msg_id = None
+        self.editing_delete_file = False
+        self.editing_new_file = None
+        self.chat_screen.stop_edit_mode()
+
+    def handle_delete_attached_file(self):
+        self.editing_delete_file = True
+        self.editing_new_file = None
+        self.editing_new_filename = None
+        self.chat_screen.delete_attached_file_btn.visible = False
+        
+        label_val = self.chat_screen.edit_label.value
+        if " | 📎" in label_val:
+            label_val = label_val.split(" | 📎")[0]
+        label_val += " (файл удален)"
+        self.chat_screen.edit_label.value = label_val
+        try:
+            self.chat_screen.edit_panel.update()
+        except Exception:
+            pass
 
     # ==========================================
     #       СЕТЕВЫЕ СОБЫТИЯ
@@ -466,7 +532,8 @@ class MainWindow:
                     text=msg.get('text', ''),
                     timestamp=msg['timestamp'],
                     msg_id=msg.get('id'),
-                    file_name=msg.get('file_name')
+                    file_name=msg.get('file_name'),
+                    updated_at=msg.get('updated_at')
                 )
             else:
                 self.chat_screen.add_system_message(f"[🔔] Новое сообщение в чате '{cname}'", ft.Colors.YELLOW)
@@ -481,6 +548,18 @@ class MainWindow:
         elif action == "msg_deleted":
             if data.get("chat_id") == self.active_chat_id:
                 self.chat_screen.remove_message(data.get("msg_id"))
+
+        elif action == "msg_edited":
+            if data.get("chat_id") == self.active_chat_id:
+                msg = data.get("message")
+                self.chat_screen.update_message(
+                    msg_id=msg['id'],
+                    sender=msg['sender'],
+                    text=msg.get('text', ''),
+                    timestamp=msg['timestamp'],
+                    file_name=msg.get('file_name'),
+                    updated_at=msg.get('updated_at')
+                )
 
         elif action == "chat_list":
             chats = data.get("chats", [])
@@ -530,7 +609,8 @@ class MainWindow:
                 for msg in messages:
                     self.chat_screen.add_message(
                         sender=msg['sender'], text=msg.get('text', ''),
-                        timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name')
+                        timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name'),
+                        updated_at=msg.get('updated_at')
                     )
             else:
                 # Подгрузка СТАРЫХ сообщений
