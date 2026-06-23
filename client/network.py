@@ -105,6 +105,31 @@ class MessengerNetwork:
                 logger.error(f"Terminate other sessions error: {e}")
                 return False, "Сервер недоступен"
 
+    async def upload_public_key(self, public_key: str) -> bool:
+        if not self.token:
+            return False
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with httpx.AsyncClient(verify=False) as client:
+            try:
+                res = await client.post(f"{self.api_url}/auth/public-key", json={"public_key": public_key}, headers=headers)
+                return res.status_code == 200
+            except Exception as e:
+                logger.error(f"Upload public key error: {e}")
+        return False
+
+    async def get_user_public_key(self, target_username: str) -> str:
+        if not self.token:
+            return ""
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with httpx.AsyncClient(verify=False) as client:
+            try:
+                res = await client.get(f"{self.api_url}/users/{target_username}/public-key", headers=headers)
+                if res.status_code == 200:
+                    return res.json().get("public_key") or ""
+            except Exception as e:
+                logger.error(f"Get user public key error: {e}")
+        return ""
+
     async def send(self, data: dict):
         action = data.get("action")
         headers = {"Authorization": f"Bearer {self.token}"}
@@ -146,6 +171,25 @@ class MessengerNetwork:
                                             json={"target_username": data.get("target")}, headers=headers)
                     if res.status_code == 200:
                         await self.on_message_received({"action": "dialog_created", **res.json()})
+
+                elif action == "create_secret_chat":
+                    res = await client.post(
+                        f"{self.api_url}/chats/secret",
+                        json={
+                            "target_username": data.get("target"),
+                            "encrypted_key_sender": data.get("encrypted_key_sender"),
+                            "encrypted_key_recipient": data.get("encrypted_key_recipient")
+                        },
+                        headers=headers
+                    )
+                    if res.status_code == 200:
+                        resp_data = res.json()
+                        await self.on_message_received({
+                            "action": "dialog_created",
+                            "chat_id": resp_data.get("chat_id"),
+                            "target": resp_data.get("target"),
+                            "type": "secret"
+                        })
 
                 elif action == "delete_msg":
                     await client.delete(f"{self.api_url}/messages/{data.get('msg_id')}", headers=headers)

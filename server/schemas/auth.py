@@ -17,3 +17,6 @@ class UserReset(BaseModel):
     username: str
     secret: str
     new_password: str
+
+class PublicKeyRequest(BaseModel):
+    public_key: str

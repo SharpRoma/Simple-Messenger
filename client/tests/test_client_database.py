@@ -112,3 +112,55 @@ def test_mark_chat_as_read(temp_db):
     
     assert msg_alice["is_read"] is True
     assert msg_bob["is_read"] is False
+
+def test_get_chat_files(temp_db):
+    temp_db.save_chats([{"id": 1, "name": "General", "type": "group"}])
+    messages = [
+        {"id": 10, "sender": "alice", "text": "Hello", "timestamp": 1000, "file_name": None},
+        {"id": 11, "sender": "bob", "text": "Photo here", "timestamp": 1001, "file_name": "photo.png"},
+        {"id": 12, "sender": "alice", "text": "Doc here", "timestamp": 1002, "file_name": "doc.pdf"}
+    ]
+    temp_db.save_messages(1, messages)
+    
+    files = temp_db.get_chat_files(1)
+    assert len(files) == 2
+    assert files[0]["id"] == 12
+    assert files[0]["file_name"] == "doc.pdf"
+    assert files[1]["id"] == 11
+    assert files[1]["file_name"] == "photo.png"
+
+def test_symmetric_key_saving_and_migration(temp_db):
+    # Тест ON CONFLICT и COALESCE
+    chats = [{"id": 42, "name": "secret_chat", "type": "secret", "symmetric_key": "AesKeyBase64String"}]
+    temp_db.save_chats(chats)
+
+    loaded = temp_db.get_chats()
+    assert loaded[0]["symmetric_key"] == "AesKeyBase64String"
+
+    # Теперь присылаем чат из списка без symmetric_key (как придет с сервера перед расшифрованием)
+    chats_update = [{"id": 42, "name": "secret_chat", "type": "secret"}]
+    temp_db.save_chats(chats_update)
+
+    loaded_again = temp_db.get_chats()
+    # Проверяем, что ключ сохранился и не затерся NULL-ом
+    assert loaded_again[0]["symmetric_key"] == "AesKeyBase64String"
+
+def test_search_messages_local(temp_db):
+    temp_db.save_chats([{"id": 1, "name": "secret", "type": "secret"}])
+    messages = [
+        {"id": 10, "sender": "alice", "text": "secret info about project", "timestamp": 1000},
+        {"id": 11, "sender": "bob", "text": "nothing sensitive here", "timestamp": 1001, "file_name": "important_presentation.pdf"},
+        {"id": 12, "sender": "alice", "text": "unrelated", "timestamp": 1002}
+    ]
+    temp_db.save_messages(1, messages)
+
+    # Ищем по слову "project"
+    res1 = temp_db.search_messages(1, "project")
+    assert len(res1) == 1
+    assert res1[0]["id"] == 10
+
+    # Ищем по имени файла "presentation"
+    res2 = temp_db.search_messages(1, "presentation")
+    assert len(res2) == 1
+    assert res2[0]["id"] == 11
+

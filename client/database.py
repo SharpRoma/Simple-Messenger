@@ -20,6 +20,11 @@ class ClientDatabase:
                     type TEXT NOT NULL
                 )
             """)
+            try:
+                conn.execute("ALTER TABLE chats ADD COLUMN symmetric_key TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY,
@@ -38,15 +43,20 @@ class ClientDatabase:
     def save_chats(self, chats: list[dict]):
         with self._get_conn() as conn:
             for chat in chats:
-                conn.execute(
-                    "INSERT OR REPLACE INTO chats (id, name, type) VALUES (?, ?, ?)",
-                    (chat["id"], chat["name"], chat["type"])
-                )
+                symmetric_key = chat.get("symmetric_key")
+                conn.execute("""
+                    INSERT INTO chats (id, name, type, symmetric_key)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        type = excluded.type,
+                        symmetric_key = COALESCE(excluded.symmetric_key, chats.symmetric_key)
+                """, (chat["id"], chat["name"], chat["type"], symmetric_key))
             conn.commit()
 
     def get_chats(self) -> list[dict]:
         with self._get_conn() as conn:
-            cursor = conn.execute("SELECT id, name, type FROM chats")
+            cursor = conn.execute("SELECT id, name, type, symmetric_key FROM chats")
             return [dict(row) for row in cursor.fetchall()]
 
     def save_messages(self, chat_id: int, messages: list[dict]):
@@ -85,6 +95,17 @@ class ClientDatabase:
                 msg_list.append(d)
             return msg_list
 
+    def get_chat_files(self, chat_id: int) -> list[dict]:
+        with self._get_conn() as conn:
+            cursor = conn.execute("""
+                SELECT id, sender, text, file_name, timestamp, updated_at, is_read 
+                FROM messages 
+                WHERE chat_id = ? AND file_name IS NOT NULL
+                ORDER BY timestamp DESC
+            """, (chat_id,))
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+
     def delete_message(self, msg_id: int):
         with self._get_conn() as conn:
             conn.execute("DELETE FROM messages WHERE id = ?", (msg_id,))
@@ -107,3 +128,19 @@ class ClientDatabase:
                 WHERE chat_id = ? AND sender != ?
             """, (chat_id, current_username))
             conn.commit()
+
+    def search_messages(self, chat_id: int, query: str) -> list[dict]:
+        with self._get_conn() as conn:
+            cursor = conn.execute("""
+                SELECT id, sender, text, file_name, timestamp, updated_at, is_read 
+                FROM messages 
+                WHERE chat_id = ? AND (text LIKE ? OR file_name LIKE ?)
+                ORDER BY timestamp DESC
+            """, (chat_id, f"%{query}%", f"%{query}%"))
+            rows = cursor.fetchall()
+            msg_list = []
+            for r in reversed(rows):
+                d = dict(r)
+                d["is_read"] = bool(d["is_read"])
+                msg_list.append(d)
+            return msg_list

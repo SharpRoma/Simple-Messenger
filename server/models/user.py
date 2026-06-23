@@ -9,3 +9,4 @@ class User(Base):
     username: Mapped[str] = mapped_column(String, primary_key=True)
     password: Mapped[str] = mapped_column(String, nullable=False)
     last_seen: Mapped[int] = mapped_column(Integer, nullable=True, default=0)
+    public_key: Mapped[str] = mapped_column(String, nullable=True)

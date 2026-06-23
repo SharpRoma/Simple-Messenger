@@ -14,13 +14,19 @@ class PmDialog(BaseDialog):
             on_change=self._handle_search_change
         )
 
+        self.secret_checkbox = ft.Checkbox(
+            label="Секретный чат (E2EE шифрование)",
+            value=False
+        )
+
         self.results_list = ft.ListView(expand=True, spacing=5, height=120)
 
         # Компонуем в колонку фиксированной высоты, чтобы результаты вмещались
         self.content_container = ft.Column([
             self.pm_input,
+            self.secret_checkbox,
             self.results_list
-        ], spacing=10, height=200, width=300)
+        ], spacing=10, height=240, width=300)
 
         self.dialog = ft.AlertDialog(
             title=ft.Text("Новый диалог"),
@@ -68,6 +74,7 @@ class PmDialog(BaseDialog):
     def _handle_submit(self, e):
         target = self.pm_input.value.strip()
         if target:
+            is_secret = self.secret_checkbox.value
             self.close()
             # Передаем логин наверх в контроллер
-            self.on_create_pm(target)
+            self.on_create_pm(target, is_secret)

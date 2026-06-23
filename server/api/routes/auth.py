@@ -11,7 +11,7 @@ from core.security import hash_password, verify_password, create_access_token
 from models.user import User
 from models.chat import Chat, ChatMember
 from models.session import UserSession
-from schemas.auth import UserRegister, UserLogin, TokenResponse, UserReset
+from schemas.auth import UserRegister, UserLogin, TokenResponse, UserReset, PublicKeyRequest
 from api.dependencies import get_current_user
 from api.websockets import manager
 
@@ -173,3 +173,18 @@ async def terminate_others(
     await manager.disconnect_other_sessions(username, current_jti)
 
     return {"status": "ok", "msg": "Другие сеансы успешно завершены"}
+
+
+@router.post("/public-key")
+async def upload_public_key(
+    data: PublicKeyRequest,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    user.public_key = data.public_key
+    await db.commit()
+    return {"status": "ok", "msg": "Публичный ключ успешно обновлен"}

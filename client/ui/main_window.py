@@ -2,6 +2,7 @@ import flet as ft
 import asyncio
 import base64
 import time
+import os
 from datetime import datetime
 from network import MessengerNetwork
 from ui.screens.login_screen import LoginScreen
@@ -18,6 +19,10 @@ from ui.dialogs.restore_dialog import RestoreDialog
 from ui.dialogs.media_dialog import MediaDialog
 
 from database import ClientDatabase
+from system.crypto import CryptoManager
+import logging
+
+logger = logging.getLogger("messenger.main")
 
 class MainWindow:
     def __init__(self, page: ft.Page, system_adapter, settings_manager):
@@ -27,6 +32,7 @@ class MainWindow:
         self.settings = self.settings_manager.load_settings()
 
         self.db = ClientDatabase(self.settings_manager.APP_DIR / "client_cache.sqlite")
+        self.crypto_mgr = CryptoManager(self.settings_manager.APP_DIR)
 
         self.current_username = ""
         self.active_chat_id = None
@@ -67,7 +73,7 @@ class MainWindow:
         """Форматирует имя чата для отображения, даже если в логинах есть спецсимволы"""
         name = chat_data.get('name', 'Неизвестный чат')
 
-        if chat_data.get('type') == 'dialog':
+        if chat_data.get('type') in ['dialog', 'secret']:
             # Чат может называться "мойЛогин_чужойЛогин" или "чужойЛогин_мойЛогин"
             prefix = f"{self.current_username}_"
             suffix = f"_{self.current_username}"
@@ -198,6 +204,15 @@ class MainWindow:
             self.page.title = f"Simple Messenger ({self.current_username})"
 
             self.show_chat_screen()
+
+            # Инициализация и загрузка публичного ключа для E2EE
+            try:
+                self.crypto_mgr.init_keys()
+                pubkey = self.crypto_mgr.get_public_key_pem()
+                await self.network.upload_public_key(pubkey)
+            except Exception as e:
+                logger.error(f"Failed to upload E2EE public key: {e}", exc_info=True)
+
             await self.network.send({"action": "get_chats"})
 
             self.page.run_task(self.network.listen)
@@ -219,6 +234,10 @@ class MainWindow:
             self.show_snackbar("Нет подключения к сети!")
             return
         async def send_task():
+            chat_data = self.chats_info.get(self.active_chat_id, {})
+            is_secret = chat_data.get("type") == "secret"
+            sym_key_b64 = chat_data.get("symmetric_key")
+
             if self.editing_msg_id is not None:
                 msg_id = self.editing_msg_id
                 delete_file = self.editing_delete_file
@@ -226,11 +245,19 @@ class MainWindow:
                 new_filename = getattr(self, "editing_new_filename", None)
                 
                 self.handle_cancel_edit()
+
+                payload_text = text
+                if is_secret and sym_key_b64:
+                    try:
+                        key_bytes = base64.b64decode(sym_key_b64)
+                        payload_text = CryptoManager.encrypt_aes(key_bytes, text)
+                    except Exception as e:
+                        logger.error(f"Failed to encrypt edited message: {e}", exc_info=True)
                 
                 await self.network.send({
                     "action": "edit_msg",
                     "msg_id": msg_id,
-                    "text": text,
+                    "text": payload_text,
                     "delete_file": delete_file,
                     "new_filepath": new_filepath,
                     "new_filename": new_filename
@@ -244,7 +271,14 @@ class MainWindow:
                     elif cmd == '/pm' and len(parts) > 1:
                         await self.network.send({"action": "create_dialog", "target": parts[1]})
                 else:
-                    await self.network.send({"action": "send_msg", "chat_id": self.active_chat_id, "text": text})
+                    payload_text = text
+                    if is_secret and sym_key_b64:
+                        try:
+                            key_bytes = base64.b64decode(sym_key_b64)
+                            payload_text = CryptoManager.encrypt_aes(key_bytes, text)
+                        except Exception as e:
+                            logger.error(f"Failed to encrypt message: {e}", exc_info=True)
+                    await self.network.send({"action": "send_msg", "chat_id": self.active_chat_id, "text": payload_text})
 
         self.page.run_task(send_task)
 
@@ -312,11 +346,44 @@ class MainWindow:
         dialog.show()
 
     def show_pm_modal(self):
-        def on_create_pm(target_username):
-            self.page.run_task(self.network.send, {"action": "create_dialog", "target": target_username})
+        def on_create_pm(target_username, is_secret=False):
+            if is_secret:
+                self.page.run_task(self.handle_create_secret_chat, target_username)
+            else:
+                self.page.run_task(self.network.send, {"action": "create_dialog", "target": target_username})
 
         dialog = PmDialog(self.page, on_create_pm, self.handle_search_users)
         dialog.show()
+
+    async def handle_create_secret_chat(self, target_username):
+        self.show_snackbar("Запрос публичного ключа собеседника...", ft.Colors.BLUE)
+        target_pubkey = await self.network.get_user_public_key(target_username)
+        if not target_pubkey:
+            self.show_snackbar(f"Пользователь {target_username} не поддерживает E2EE.", ft.Colors.RED)
+            return
+
+        try:
+            self.crypto_mgr.init_keys()
+            our_pubkey = self.crypto_mgr.get_public_key_pem()
+
+            # Генерируем 32-байтный AES-ключ
+            aes_key = os.urandom(32)
+            aes_key_base64 = base64.b64encode(aes_key).decode("utf-8")
+
+            # Шифруем ключ для себя и собеседника
+            enc_key_sender = CryptoManager.encrypt_rsa_with_pubkey(our_pubkey, aes_key)
+            enc_key_recipient = CryptoManager.encrypt_rsa_with_pubkey(target_pubkey, aes_key)
+
+            # Отправляем запрос на сервер для создания секретного чата
+            await self.network.send({
+                "action": "create_secret_chat",
+                "target": target_username,
+                "encrypted_key_sender": enc_key_sender,
+                "encrypted_key_recipient": enc_key_recipient
+            })
+        except Exception as e:
+            logger.error(f"Failed to create secret chat: {e}", exc_info=True)
+            self.show_snackbar("Ошибка создания секретного чата", ft.Colors.RED)
 
     def handle_open_profile(self):
         if not self.active_chat_id: return
@@ -373,7 +440,7 @@ class MainWindow:
                 subtitle = "групповой чат"
 
         # Применяем к UI
-        self.chat_screen.set_chat_title(cname, subtitle=subtitle, show_info=is_group, is_online=is_online)
+        self.chat_screen.set_chat_title(cname, subtitle=subtitle, show_info=True, is_online=is_online)
 
     def show_create_group_modal(self):
         def on_create(name):
@@ -536,11 +603,28 @@ class MainWindow:
 
     def handle_search_messages(self, query: str):
         if not self.active_chat_id: return
-        self.page.run_task(self.network.send, {
-            "action": "search_messages",
-            "chat_id": self.active_chat_id,
-            "query": query
-        })
+        chat_data = self.chats_info.get(self.active_chat_id, {})
+        if chat_data.get("type") == "secret":
+            results = self.db.search_messages(self.active_chat_id, query)
+            self.chat_screen.clear_messages()
+            self.is_searching = True
+            self.show_snackbar(f"Найдено: {len(results)} сообщений")
+            for msg in results:
+                self.chat_screen.add_message(
+                    sender=msg['sender'],
+                    text=msg.get('text', ''),
+                    timestamp=msg['timestamp'],
+                    msg_id=msg.get('id'),
+                    file_name=msg.get('file_name'),
+                    updated_at=msg.get('updated_at'),
+                    is_read=msg.get('is_read', False)
+                )
+        else:
+            self.page.run_task(self.network.send, {
+                "action": "search_messages",
+                "chat_id": self.active_chat_id,
+                "query": query
+            })
 
     def handle_clear_search(self):
         self.is_searching = False
@@ -601,12 +685,28 @@ class MainWindow:
             self.is_reconnecting = False
             self.page.run_task(self.on_net_disconnect)
 
+    def decrypt_message_in_place(self, chat_id, msg):
+        if not msg or not chat_id:
+            return
+        chat_data = self.chats_info.get(chat_id)
+        if chat_data and chat_data.get("type") == "secret":
+            sym_key_b64 = chat_data.get("symmetric_key")
+            if sym_key_b64 and msg.get("text"):
+                try:
+                    key_bytes = base64.b64decode(sym_key_b64)
+                    decrypted_text = CryptoManager.decrypt_aes(key_bytes, msg["text"])
+                    msg["text"] = decrypted_text
+                except Exception as e:
+                    logger.error(f"Failed to decrypt message {msg.get('id')}: {e}")
+                    msg["text"] = "[Ошибка расшифрования]"
+
     async def on_net_message(self, data):
         action = data.get("action")
 
         if action == "new_msg":
             chat_id, msg = data.get("chat_id"), data.get("message")
             if chat_id and msg:
+                self.decrypt_message_in_place(chat_id, msg)
                 self.db.save_messages(chat_id, [msg])
 
             chat_data = self.chats_info.get(chat_id, {})
@@ -646,6 +746,9 @@ class MainWindow:
 
         elif action == "msg_edited":
             msg = data.get("message")
+            chat_id = data.get("chat_id")
+            if chat_id and msg:
+                self.decrypt_message_in_place(chat_id, msg)
             if msg:
                 self.db.update_message(
                     msg_id=msg['id'],
@@ -694,8 +797,22 @@ class MainWindow:
 
         elif action == "chat_list":
             chats = data.get("chats", [])
-            self.db.save_chats(chats)
+            try:
+                self.crypto_mgr.init_keys()
+            except Exception:
+                pass
             for c in chats:
+                if c.get("type") == "secret" and c.get("encrypted_key"):
+                    try:
+                        dec_key_bytes = self.crypto_mgr.decrypt_rsa(c["encrypted_key"])
+                        c["symmetric_key"] = base64.b64encode(dec_key_bytes).decode("utf-8")
+                    except Exception as e:
+                        logger.error(f"Failed to decrypt symmetric key for chat {c.get('id')}: {e}", exc_info=True)
+            self.db.save_chats(chats)
+            
+            # Читаем чаты обратно из БД, чтобы получить полностью объединенные записи
+            db_chats = self.db.get_chats()
+            for c in db_chats:
                 self.chats_info[c['id']] = c
             self.update_drawer()
 
@@ -730,6 +847,8 @@ class MainWindow:
             offset = data.get("offset", 0)  # Читаем сдвиг, который мы же и отправили!
 
             if chat_id and messages:
+                for msg in messages:
+                    self.decrypt_message_in_place(chat_id, msg)
                 self.db.save_messages(chat_id, messages)
 
             # Если сервер прислал меньше 20 сообщений, значит мы дошли до самого начала истории
@@ -805,12 +924,28 @@ class MainWindow:
             self.page.run_task(clear_typing)
 
         elif action == "chat_members_data":
-            # Сервер прислал профиль группы
             chat_data = self.chats_info.get(self.active_chat_id, {})
             cname = self.get_chat_name(chat_data)
+            ctype = chat_data.get("type", "group")
             members = data.get("members", [])
 
-            dialog = ChatProfileDialog(self.page, cname, members, self.show_add_member_modal)
+            # Извлекаем файлы из локальной БД
+            files = self.db.get_chat_files(self.active_chat_id)
+
+            def handle_open_media_from_info(msg_id, is_vid, name):
+                media_url = self.get_media_url(msg_id)
+                self.show_media_modal(media_url, is_vid, name)
+
+            dialog = ChatProfileDialog(
+                self.page,
+                cname,
+                ctype,
+                members,
+                files,
+                self.show_add_member_modal,
+                self.handle_download_file,
+                handle_open_media_from_info
+            )
             dialog.show()
 
         elif action == "file_saved":
@@ -871,12 +1006,17 @@ class MainWindow:
         # --- 2. Личные диалоги ---
         has_dialogs = False
         for cid, chat in self.chats_info.items():
-            if chat.get('type') == 'dialog':
+            ctype = chat.get('type')
+            if ctype in ['dialog', 'secret']:
                 has_dialogs = True
                 display_name = self.get_chat_name(chat)
+                if ctype == 'secret':
+                    leading_icon = ft.Icon(ft.Icons.LOCK, color=ft.Colors.GREEN)
+                else:
+                    leading_icon = ft.Icon(ft.Icons.PERSON)
                 controls.append(
                     ft.ListTile(
-                        leading=ft.Icon(ft.Icons.PERSON),
+                        leading=leading_icon,
                         title=ft.Text(display_name),
                         on_click=make_select(cid)
                     )

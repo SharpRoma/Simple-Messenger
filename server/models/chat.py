@@ -16,6 +16,7 @@ class ChatMember(Base):
     # ondelete="CASCADE" значит, что если удалить чат, то все его участники удалятся из этой таблицы
     chat_id: Mapped[int] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"))
     username: Mapped[str] = mapped_column(ForeignKey("users.username", ondelete="CASCADE"))
+    encrypted_key: Mapped[str] = mapped_column(String, nullable=True)
 
     # Запрещаем добавлять одного юзера в один чат дважды
     __table_args__ = (UniqueConstraint('chat_id', 'username', name='_chat_user_uc'),)
