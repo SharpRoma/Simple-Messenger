@@ -13,8 +13,8 @@ async def register_and_get_token(client: AsyncClient, username: str) -> str:
         "password": "password123",
         "secret": "niir-invite"
     }
-    await client.post("/api/auth/register", json=payload)
-    return create_access_token({"sub": username})
+    response = await client.post("/api/auth/register", json=payload)
+    return response.json()["access_token"]
 
 
 @pytest.mark.asyncio

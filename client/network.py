@@ -78,6 +78,33 @@ class MessengerNetwork:
                 logger.error(f"Search users error: {e}")
         return []
 
+    async def get_sessions(self) -> list:
+        if not self.token:
+            return []
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with httpx.AsyncClient(verify=False) as client:
+            try:
+                res = await client.get(f"{self.api_url}/auth/sessions", headers=headers)
+                if res.status_code == 200:
+                    return res.json().get("sessions", [])
+            except Exception as e:
+                logger.error(f"Get sessions error: {e}")
+        return []
+
+    async def terminate_other_sessions(self) -> tuple[bool, str]:
+        if not self.token:
+            return False, "Нет авторизации"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with httpx.AsyncClient(verify=False) as client:
+            try:
+                res = await client.post(f"{self.api_url}/auth/sessions/terminate-others", headers=headers)
+                if res.status_code == 200:
+                    return True, ""
+                return False, res.json().get("detail", "Ошибка завершения сеансов")
+            except Exception as e:
+                logger.error(f"Terminate other sessions error: {e}")
+                return False, "Сервер недоступен"
+
     async def send(self, data: dict):
         action = data.get("action")
         headers = {"Authorization": f"Bearer {self.token}"}

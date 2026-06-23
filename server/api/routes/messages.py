@@ -17,7 +17,8 @@ from schemas.message import HistoryResponse
 
 router = APIRouter(prefix="/messages", tags=["Сообщения и Файлы"])
 
-UPLOAD_DIR = "uploads"
+from core.config import BASE_DIR
+UPLOAD_DIR = str(BASE_DIR / "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 

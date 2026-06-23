@@ -37,6 +37,18 @@ class ConnectionManager:
                 except Exception:
                     self.disconnect(connection, username)
 
+    async def disconnect_other_sessions(self, username: str, current_token_id: str):
+        """Закрывает и отключает все WebSocket сессии пользователя, кроме текущей"""
+        if username in self.active_connections:
+            connections = list(self.active_connections[username])
+            for ws in connections:
+                if getattr(ws, "token_id", None) != current_token_id:
+                    try:
+                        await ws.close(code=4000)
+                    except Exception:
+                        pass
+                    self.disconnect(ws, username)
+
     async def broadcast(self, message: dict):
         """Отправляет сообщение абсолютно всем, кто сейчас онлайн"""
         text_data = json.dumps(message)

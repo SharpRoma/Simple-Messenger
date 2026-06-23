@@ -19,12 +19,31 @@ router = APIRouter(tags=["WebSockets"])
 async def websocket_endpoint(websocket: WebSocket, token: str):
     # 1. Проверяем токен при подключении
     try:
-        username = get_username_from_token(token)
+        from api.dependencies import decode_access_token
+        from models.session import UserSession
+
+        payload = decode_access_token(token)
+        username = payload.get("sub")
+        jti = payload.get("jti")
+        if not username or not jti:
+            raise ValueError("Неверный токен")
+
+        async with async_session_maker() as db:
+            result = await db.execute(
+                select(UserSession).where(
+                    UserSession.username == username,
+                    UserSession.token_id == jti
+                )
+            )
+            session = result.scalar_one_or_none()
+            if not session:
+                raise ValueError("Сессия неактивна")
     except Exception as e:
         await websocket.close(code=1008)  # 1008 - Ошибка авторизации
         return
 
     # 2. Регистрируем пользователя как "Онлайн"
+    websocket.token_id = jti
     await manager.connect(websocket, username)
 
     await manager.broadcast({"action": "status", "username": username, "status": "online"})

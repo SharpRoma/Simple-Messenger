@@ -3,8 +3,10 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-# Используем временный файл базы данных для тестов
-TEST_DB_FILE = "test_db.sqlite"
+from pathlib import Path
+
+# Используем временный файл базы данных для тестов (абсолютный путь в папке server)
+TEST_DB_FILE = str(Path(__file__).resolve().parent.parent / "test_db.sqlite")
 TEST_DATABASE_URL = f"sqlite+aiosqlite:///{TEST_DB_FILE}"
 
 engine = create_async_engine(

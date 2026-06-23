@@ -409,7 +409,26 @@ class MainWindow:
             self.page.run_task(close_and_exit)
             self.show_login_screen()
 
-        dialog = SettingsDialog(self.page, self.settings, on_settings_changed, on_logout)
+        async def on_load_sessions():
+            return await self.network.get_sessions()
+
+        async def on_terminate_sessions():
+            success, msg = await self.network.terminate_other_sessions()
+            if success:
+                self.show_snackbar("Другие сеансы успешно завершены")
+                return True, ""
+            else:
+                self.show_snackbar(f"Ошибка: {msg}")
+                return False, msg
+
+        dialog = SettingsDialog(
+            self.page,
+            self.settings,
+            on_settings_changed,
+            on_logout,
+            on_load_sessions,
+            on_terminate_sessions
+        )
         dialog.show()
 
     def get_media_url(self, msg_id: int) -> str:

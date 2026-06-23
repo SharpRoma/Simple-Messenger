@@ -1,15 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Virtual Environment & IDE
 /.venv/
 /.idea/
+.DS_Store
+
+# Environments and Keys
+.env
 /server/.env
 *.pem
+
+# Build and Packaging
+/dist/
 *.spec
 AppIcon.icns
-.env
+
+# Data, Logs and Uploads
+/logs/
+/server/logs/
+/uploads/
+/server/uploads/
 server/data/
 client/settings.json
-.DS_Store
-/logs/
-/uploads/
-/dist/
-/test_db.sqlite
-/server/logs/
+
+# Databases
+*.sqlite
+test_db.sqlite
+/server/test_db.sqlite
