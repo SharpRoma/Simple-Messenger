@@ -17,12 +17,16 @@ from ui.dialogs.chat_profile_dialog import ChatProfileDialog
 from ui.dialogs.restore_dialog import RestoreDialog
 from ui.dialogs.media_dialog import MediaDialog
 
+from database import ClientDatabase
+
 class MainWindow:
     def __init__(self, page: ft.Page, system_adapter, settings_manager):
         self.page = page
         self.os = system_adapter
         self.settings_manager = settings_manager
         self.settings = self.settings_manager.load_settings()
+
+        self.db = ClientDatabase(self.settings_manager.APP_DIR / "client_cache.sqlite")
 
         self.current_username = ""
         self.active_chat_id = None
@@ -147,12 +151,36 @@ class MainWindow:
         )
         self.page.add(self.chat_screen)
 
+        # Сначала загружаем чаты из локальной БД
+        cached_chats = self.db.get_chats()
+        if cached_chats:
+            for c in cached_chats:
+                self.chats_info[c['id']] = c
+            self.update_drawer()
+
+            # Если активный чат еще не выбран, выберем первый/избранный из кэша
+            chat_to_select = self.active_chat_id
+            if not chat_to_select:
+                saved_chat = next((c for c in cached_chats if c.get('type') == 'saved'), None)
+                chat_to_select = saved_chat['id'] if saved_chat else cached_chats[0]['id']
+
+            self.handle_select_chat(chat_to_select)
+
     def handle_login(self, host, port, username, password, auto_login):
         async def login_task():
             # Обязательно переводим порт в int() !
             response = await self.network.connect(host, int(port), username, password)
 
             if response.get("status") != "ok":
+                # Если сервер недоступен, но у нас включен автологин, заходим в оффлайн-режиме
+                if response.get("msg") == "Сервер недоступен" and auto_login:
+                    self.current_username = username
+                    self.is_logged_in = True
+                    self.page.title = f"Simple Messenger ({self.current_username}) [Offline]"
+                    self.show_chat_screen()
+                    self.page.run_task(self.on_net_disconnect)
+                    return
+
                 self.login_screen.show_error(f"Ошибка: {response.get('msg')}")
                 return
 
@@ -187,6 +215,9 @@ class MainWindow:
 
     def handle_send_message(self, text: str):
         if not self.active_chat_id: return
+        if not self.network.ws:
+            self.show_snackbar("Нет подключения к сети!")
+            return
         async def send_task():
             if self.editing_msg_id is not None:
                 msg_id = self.editing_msg_id
@@ -447,6 +478,9 @@ class MainWindow:
 
     def handle_delete_message(self, msg_id):
         if not self.active_chat_id: return
+        if not self.network.ws:
+            self.show_snackbar("Нет подключения к сети!")
+            return
         self.page.run_task(self.network.send,
                            {"action": "delete_msg", "chat_id": self.active_chat_id, "msg_id": msg_id})
 
@@ -518,6 +552,9 @@ class MainWindow:
         if hasattr(self, 'chat_screen'):
             self.chat_screen.add_system_message("Связь потеряна. Переподключение через 3 сек...", ft.Colors.RED)
 
+        self.page.title = f"Simple Messenger ({self.current_username}) [Offline]"
+        self.page.update()
+
         try:
             await asyncio.sleep(3)
 
@@ -530,6 +567,8 @@ class MainWindow:
 
             if response.get("status") == "ok":
                 self.chat_screen.add_system_message("Соединение восстановлено!", ft.Colors.GREEN)
+                self.page.title = f"Simple Messenger ({self.current_username})"
+                self.page.update()
                 await self.network.send({"action": "get_chats"})
                 if self.active_chat_id:
                     await self.network.send({"action": "get_history", "chat_id": self.active_chat_id, "limit": 20})
@@ -548,6 +587,9 @@ class MainWindow:
 
         if action == "new_msg":
             chat_id, msg = data.get("chat_id"), data.get("message")
+            if chat_id and msg:
+                self.db.save_messages(chat_id, [msg])
+
             chat_data = self.chats_info.get(chat_id, {})
             cname = self.get_chat_name(chat_data) if chat_data else f"ID:{chat_id}"
 
@@ -577,12 +619,23 @@ class MainWindow:
                     self.os.set_tray_badge(True)
 
         elif action == "msg_deleted":
+            msg_id = data.get("msg_id")
+            if msg_id:
+                self.db.delete_message(msg_id)
             if data.get("chat_id") == self.active_chat_id:
-                self.chat_screen.remove_message(data.get("msg_id"))
+                self.chat_screen.remove_message(msg_id)
 
         elif action == "msg_edited":
-            if data.get("chat_id") == self.active_chat_id:
-                msg = data.get("message")
+            msg = data.get("message")
+            if msg:
+                self.db.update_message(
+                    msg_id=msg['id'],
+                    text=msg.get('text', ''),
+                    file_name=msg.get('file_name'),
+                    updated_at=msg.get('updated_at'),
+                    is_read=msg.get('is_read', False)
+                )
+            if data.get("chat_id") == self.active_chat_id and msg:
                 self.chat_screen.update_message(
                     msg_id=msg['id'],
                     sender=msg['sender'],
@@ -614,11 +667,15 @@ class MainWindow:
                     )
 
         elif action == "messages_read":
-            if data.get("chat_id") == self.active_chat_id:
+            chat_id = data.get("chat_id")
+            if chat_id:
+                self.db.mark_chat_as_read(chat_id, self.current_username)
+            if chat_id == self.active_chat_id:
                 self.chat_screen.mark_own_messages_as_read()
 
         elif action == "chat_list":
             chats = data.get("chats", [])
+            self.db.save_chats(chats)
             for c in chats:
                 self.chats_info[c['id']] = c
             self.update_drawer()
@@ -648,11 +705,13 @@ class MainWindow:
             if action == "member_added":
                 self.show_snackbar("Участник успешно добавлен!")
 
-
         elif action == "history":
             messages = data.get("messages", [])
             chat_id = data.get("chat_id")
             offset = data.get("offset", 0)  # Читаем сдвиг, который мы же и отправили!
+
+            if chat_id and messages:
+                self.db.save_messages(chat_id, messages)
 
             # Если сервер прислал меньше 20 сообщений, значит мы дошли до самого начала истории
             if len(messages) < 20:
@@ -673,6 +732,28 @@ class MainWindow:
                 if messages:
                     self.chat_screen.prepend_messages(messages)
             self.is_loading_history = False  # Снимаем блокировку, можно крутить дальше
+
+        elif action == "history_error":
+            chat_id = data.get("chat_id")
+            offset = data.get("offset", 0)
+            if chat_id == self.active_chat_id:
+                # Пытаемся загрузить данные из локального кэша
+                cached_msgs = self.db.get_messages(chat_id, limit=20, offset=offset)
+                if not cached_msgs:
+                    self.has_more_history = False
+                else:
+                    if offset == 0:
+                        self.chat_screen.clear_messages()
+                        self.update_chat_header()
+                        for msg in cached_msgs:
+                            self.chat_screen.add_message(
+                                sender=msg['sender'], text=msg.get('text', ''),
+                                timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name'),
+                                updated_at=msg.get('updated_at'), is_read=msg.get('is_read', False)
+                            )
+                    else:
+                        self.chat_screen.prepend_messages(cached_msgs)
+                self.is_loading_history = False
 
         elif action == "status":
             # Сервер прислал чей-то статус
@@ -818,10 +899,22 @@ class MainWindow:
         self.os.set_tray_badge(False)
 
         self.history_offset = 0
-        self.is_loading_history = True  # Блокируем скролл, пока не придет первая пачка
+        self.is_loading_history = True  # Блокируем скролл, пока не придет первая пачка от сети
         self.has_more_history = True
 
         self.update_chat_header()  # Обновляем заголовок чата сразу
+
+        if hasattr(self, 'chat_screen') and self.chat_screen:
+            self.chat_screen.clear_messages()
+            # Загружаем мгновенно из локального кэша
+            cached_msgs = self.db.get_messages(chat_id, limit=20, offset=0)
+            for msg in cached_msgs:
+                self.chat_screen.add_message(
+                    sender=msg['sender'], text=msg.get('text', ''),
+                    timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name'),
+                    updated_at=msg.get('updated_at'), is_read=msg.get('is_read', False)
+                )
+
         self.page.run_task(self.network.send, {"action": "get_history", "chat_id": chat_id, "limit": 20, "offset": 0})
 
     def handle_load_more_history(self):
@@ -834,6 +927,16 @@ class MainWindow:
 
         self.is_loading_history = True
         self.history_offset += 20
+
+        if not self.network.ws:
+            # Офлайн режим: загружаем из локальной БД напрямую
+            cached_msgs = self.db.get_messages(self.active_chat_id, limit=20, offset=self.history_offset)
+            if not cached_msgs:
+                self.has_more_history = False
+            else:
+                self.chat_screen.prepend_messages(cached_msgs)
+            self.is_loading_history = False
+            return
 
         # Просим сервер прислать старые сообщения
         self.page.run_task(self.network.send, {

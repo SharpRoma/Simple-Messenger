@@ -188,6 +188,12 @@ class MessengerNetwork:
 
             except Exception as e:
                 logger.error(f"Network REST Error ({action}): {e}")
+                if action == "get_history":
+                    await self.on_message_received({
+                        "action": "history_error",
+                        "chat_id": data.get("chat_id"),
+                        "offset": data.get("offset", 0)
+                    })
 
     async def listen(self):
         """Бесконечное прослушивание входящих сообщений по WebSocket"""
