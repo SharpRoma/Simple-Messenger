@@ -57,6 +57,7 @@ class MainWindow:
         self.editing_msg_id = None
         self.editing_delete_file = False
         self.editing_new_file = None
+        self.is_searching = False
 
     def get_chat_name(self, chat_data: dict) -> str:
         """Форматирует имя чата для отображения, даже если в логинах есть спецсимволы"""
@@ -140,7 +141,9 @@ class MainWindow:
             on_open_media=self.show_media_modal,
             on_edit_message=self.handle_edit_message,
             on_cancel_edit=self.handle_cancel_edit,
-            on_delete_attached_file=self.handle_delete_attached_file
+            on_delete_attached_file=self.handle_delete_attached_file,
+            on_search_messages=self.handle_search_messages,
+            on_clear_search=self.handle_clear_search
         )
         self.page.add(self.chat_screen)
 
@@ -281,7 +284,7 @@ class MainWindow:
         def on_create_pm(target_username):
             self.page.run_task(self.network.send, {"action": "create_dialog", "target": target_username})
 
-        dialog = PmDialog(self.page, on_create_pm)
+        dialog = PmDialog(self.page, on_create_pm, self.handle_search_users)
         dialog.show()
 
     def handle_open_profile(self):
@@ -352,7 +355,8 @@ class MainWindow:
             self.page.run_task(self.network.send,
                                {"action": "add_member", "chat_id": self.active_chat_id, "username": username})
 
-        AddMemberDialog(self.page, on_add).show()
+        dialog = AddMemberDialog(self.page, on_add, self.handle_search_users)
+        dialog.show()
 
     def show_settings_modal(self):
         def on_settings_changed(new_settings):
@@ -474,6 +478,30 @@ class MainWindow:
         except Exception:
             pass
 
+    async def handle_search_users(self, query: str) -> list:
+        return await self.network.search_users(query)
+
+    def handle_search_messages(self, query: str):
+        if not self.active_chat_id: return
+        self.page.run_task(self.network.send, {
+            "action": "search_messages",
+            "chat_id": self.active_chat_id,
+            "query": query
+        })
+
+    def handle_clear_search(self):
+        self.is_searching = False
+        if not self.active_chat_id: return
+        self.history_offset = 0
+        self.is_loading_history = True
+        self.has_more_history = True
+        self.page.run_task(self.network.send, {
+            "action": "get_history",
+            "chat_id": self.active_chat_id,
+            "limit": 20,
+            "offset": 0
+        })
+
     # ==========================================
     #       СЕТЕВЫЕ СОБЫТИЯ
     # ==========================================
@@ -560,6 +588,25 @@ class MainWindow:
                     file_name=msg.get('file_name'),
                     updated_at=msg.get('updated_at')
                 )
+
+        elif action == "search_results":
+            chat_id = data.get("chat_id")
+            if chat_id == self.active_chat_id:
+                messages = data.get("messages", [])
+                self.chat_screen.clear_messages()
+                self.is_searching = True
+                
+                self.show_snackbar(f"Найдено: {len(messages)} сообщений")
+                
+                for msg in messages:
+                    self.chat_screen.add_message(
+                        sender=msg['sender'],
+                        text=msg.get('text', ''),
+                        timestamp=msg['timestamp'],
+                        msg_id=msg.get('id'),
+                        file_name=msg.get('file_name'),
+                        updated_at=msg.get('updated_at')
+                    )
 
         elif action == "chat_list":
             chats = data.get("chats", [])
@@ -769,6 +816,9 @@ class MainWindow:
         self.page.run_task(self.network.send, {"action": "get_history", "chat_id": chat_id, "limit": 20, "offset": 0})
 
     def handle_load_more_history(self):
+        # Если мы в режиме поиска, мы не подгружаем историю
+        if self.is_searching:
+            return
         # Если мы уже грузим историю или её больше нет — ничего не делаем
         if self.is_loading_history or not self.has_more_history:
             return

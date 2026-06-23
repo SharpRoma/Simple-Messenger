@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from core.database import init_db
 from core.logger import setup_logger
-from api.routes import auth, chat_ws, chats, messages
+from api.routes import auth, chat_ws, chats, messages, users
 
 # Инициализируем логирование
 setup_logger()
@@ -31,6 +31,7 @@ app = FastAPI(
 app.include_router(auth.router, prefix="/api")
 app.include_router(chats.router, prefix="/api")
 app.include_router(messages.router, prefix="/api")
+app.include_router(users.router, prefix="/api")
 
 # Подключаем WebSocket ручку
 app.include_router(chat_ws.router)

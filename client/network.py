@@ -65,6 +65,19 @@ class MessengerNetwork:
                 logger.error(f"Connection Error: {e}")
                 return {"status": "error", "msg": "Сервер недоступен"}
 
+    async def search_users(self, query: str) -> list:
+        if not self.token:
+            return []
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with httpx.AsyncClient(verify=False) as client:
+            try:
+                res = await client.get(f"{self.api_url}/users/search?query={query}", headers=headers)
+                if res.status_code == 200:
+                    return res.json().get("users", [])
+            except Exception as e:
+                logger.error(f"Search users error: {e}")
+        return []
+
     async def send(self, data: dict):
         action = data.get("action")
         headers = {"Authorization": f"Bearer {self.token}"}
@@ -89,6 +102,17 @@ class MessengerNetwork:
                                            headers=headers)
                     if res.status_code == 200:
                         await self.on_message_received({"action": "history", "offset": offset, **res.json()})
+
+                elif action == "search_messages":
+                    chat_id = data.get("chat_id")
+                    query = data.get("query")
+                    res = await client.get(f"{self.api_url}/messages/{chat_id}/search?query={query}", headers=headers)
+                    if res.status_code == 200:
+                        await self.on_message_received({
+                            "action": "search_results",
+                            "chat_id": chat_id,
+                            "messages": res.json().get("messages", [])
+                        })
 
                 elif action == "create_dialog":
                     res = await client.post(f"{self.api_url}/chats/dialog",

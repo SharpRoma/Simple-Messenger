@@ -192,3 +192,43 @@ async def edit_message(
         })
  
     return {"status": "ok", "message": msg_obj}
+
+
+@router.get("/{chat_id}/search")
+async def search_messages(
+    chat_id: int,
+    query: str = "",
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Поиск сообщений по тексту и имени файла в рамках чата (только для членов чата)"""
+    # Проверяем, состоит ли пользователь в чате
+    member_check = await db.execute(
+        select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username)
+    )
+    if not member_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Вы не состоите в этом чате")
+
+    if not query.strip():
+        return {"messages": []}
+
+    # Ищем сообщения с фильтром по тексту или имени файла
+    stmt = select(Message).where(
+        Message.chat_id == chat_id,
+        (Message.text.like(f"%{query}%") | Message.file_name.like(f"%{query}%"))
+    ).order_by(Message.timestamp.desc()).limit(100)
+
+    result = await db.execute(stmt)
+    messages = result.scalars().all()
+
+    # Форматируем ответ
+    msg_list = [{
+        "id": m.id,
+        "sender": m.sender,
+        "text": m.text,
+        "file_name": m.file_name,
+        "timestamp": m.timestamp,
+        "updated_at": m.updated_at
+    } for m in messages]
+    
+    return {"messages": msg_list}

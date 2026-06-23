@@ -21,7 +21,9 @@ class ChatScreen(ft.Container):
             on_open_media,
             on_edit_message,
             on_cancel_edit,
-            on_delete_attached_file
+            on_delete_attached_file,
+            on_search_messages,
+            on_clear_search
     ):
         super().__init__()
         self.expand = True
@@ -44,6 +46,8 @@ class ChatScreen(ft.Container):
         self.on_edit_message = on_edit_message
         self.on_cancel_edit = on_cancel_edit
         self.on_delete_attached_file = on_delete_attached_file
+        self.on_search_messages = on_search_messages
+        self.on_clear_search = on_clear_search
 
         self.is_pinned = False
         self._build_ui()
@@ -71,6 +75,14 @@ class ChatScreen(ft.Container):
         self.pin_btn = ft.IconButton(icon=ft.Icons.PUSH_PIN, icon_color=ft.Colors.WHITE54, tooltip="Поверх всех",
                                      on_click=self._toggle_pin)
 
+        # Кнопка Поиска
+        self.search_btn = ft.IconButton(
+            icon=ft.Icons.SEARCH,
+            icon_color=ft.Colors.WHITE54,
+            tooltip="Поиск сообщений",
+            on_click=self._toggle_search_panel
+        )
+
         # Кнопка Инфо (Профиль)
         self.info_btn = ft.IconButton(
             icon=ft.Icons.INFO_OUTLINE,
@@ -85,7 +97,7 @@ class ChatScreen(ft.Container):
                 on_click=lambda e: self.on_open_drawer()
             ),
             title_col,
-            ft.Row([self.info_btn, self.pin_btn])
+            ft.Row([self.info_btn, self.search_btn, self.pin_btn])
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
@@ -124,8 +136,31 @@ class ChatScreen(ft.Container):
             self.cancel_edit_btn
         ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, visible=False)
 
+        # Панель поиска сообщений
+        self.search_input = ft.TextField(
+            hint_text="Поиск в этом чате...",
+            expand=True,
+            on_submit=self._submit_search,
+            text_size=13,
+            content_padding=5,
+            height=30
+        )
+        self.close_search_btn = ft.IconButton(
+            icon=ft.Icons.CLOSE,
+            icon_size=16,
+            icon_color=ft.Colors.GREY_400,
+            tooltip="Закрыть поиск",
+            on_click=self._handle_close_search_click
+        )
+        self.search_panel = ft.Row([
+            ft.Icon(ft.Icons.SEARCH, size=16, color=ft.Colors.GREY_400),
+            self.search_input,
+            self.close_search_btn
+        ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, visible=False)
+
         self.content = ft.Column([
             header_row, ft.Divider(height=1),
+            self.search_panel,
             ft.Container(
                 content=self.chat_history,
                 expand=True,
@@ -170,6 +205,32 @@ class ChatScreen(ft.Container):
 
     def _handle_delete_attached_file_click(self, e):
         self.on_delete_attached_file()
+
+    def _toggle_search_panel(self, e):
+        self.search_panel.visible = not self.search_panel.visible
+        if self.search_panel.visible:
+            self.search_input.focus()
+        else:
+            self.search_input.value = ""
+            self.on_clear_search()
+        try:
+            self.search_panel.update()
+        except Exception:
+            pass
+
+    def _submit_search(self, e):
+        query = self.search_input.value.strip()
+        if query:
+            self.on_search_messages(query)
+
+    def _handle_close_search_click(self, e):
+        self.search_input.value = ""
+        self.search_panel.visible = False
+        self.on_clear_search()
+        try:
+            self.search_panel.update()
+        except Exception:
+            pass
 
     # --- Публичные методы управления режимом редактирования ---
     def start_edit_mode(self, text: str, file_name: str = None):
