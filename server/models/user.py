@@ -8,5 +8,4 @@ class User(Base):
     # username - Primary Key
     username: Mapped[str] = mapped_column(String, primary_key=True)
     password: Mapped[str] = mapped_column(String, nullable=False)
-    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     last_seen: Mapped[int] = mapped_column(Integer, nullable=True, default=0)

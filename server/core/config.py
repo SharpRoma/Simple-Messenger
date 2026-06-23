@@ -9,7 +9,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 class Settings(BaseSettings):
     server_secret: str
     jwt_secret_key: str
-    admin_password: str
 
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7

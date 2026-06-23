@@ -80,15 +80,11 @@ async def create_group(req: CreateGroupRequest, username: str = Depends(get_curr
 async def add_member(chat_id: int, req: AddMemberRequest, username: str = Depends(get_current_user),
                      db: AsyncSession = Depends(get_db)):
     """Добавляет пользователя в групповой чат"""
-    # Проверяем, состоит ли текущий юзер в чате (или он админ)
-    user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
-    is_admin = user.is_admin if user else False
-
-    if not is_admin:
-        member_check = await db.execute(
-            select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username))
-        if not member_check.scalar_one_or_none():
-            raise HTTPException(status_code=403, detail="Вы не состоите в этом чате")
+    # Проверяем, состоит ли текущий юзер в чате
+    member_check = await db.execute(
+        select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username))
+    if not member_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Вы не состоите в этом чате")
 
     # Проверяем, что это именно группа
     chat = (await db.execute(select(Chat).where(Chat.id == chat_id))).scalar_one_or_none()
@@ -117,15 +113,11 @@ async def add_member(chat_id: int, req: AddMemberRequest, username: str = Depend
 @router.get("/{chat_id}/members")
 async def get_chat_members(chat_id: int, username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Возвращает профиль чата: список участников и их статусы"""
-    # 1. Проверка прав (админ или участник)
-    user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
-    is_admin = user.is_admin if user else False
-
-    if not is_admin:
-        member_check = await db.execute(
-            select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username))
-        if not member_check.scalar_one_or_none():
-            raise HTTPException(status_code=403, detail="Вы не состоите в этом чате")
+    # 1. Проверка прав (участник)
+    member_check = await db.execute(
+        select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username))
+    if not member_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Вы не состоите в этом чате")
 
     # 2. Достаем всех участников и их last_seen из базы
     query = (

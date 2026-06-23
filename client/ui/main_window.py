@@ -32,6 +32,7 @@ class MainWindow:
         self.is_loading_history = False
         self.has_more_history = True
         self.pending_downloads = {}
+        self.is_reconnecting = False
 
         self.network = MessengerNetwork(self.on_net_message, self.on_net_disconnect)
 
@@ -416,25 +417,36 @@ class MainWindow:
         if not getattr(self, 'is_logged_in', False):
             return
 
+        if getattr(self, 'is_reconnecting', False):
+            return
+        self.is_reconnecting = True
+
         if hasattr(self, 'chat_screen'):
             self.chat_screen.add_system_message("Связь потеряна. Переподключение через 3 сек...", ft.Colors.RED)
 
-        await asyncio.sleep(3)
+        try:
+            await asyncio.sleep(3)
 
-        # Пытаемся переподключиться тихо (в фоне)
-        response = await self.network.connect(
-            self.settings.get("host"), int(self.settings.get("port", 8888)),
-            self.settings.get("username"),
-            self.settings.get("password")
-        )
+            # Пытаемся переподключиться тихо (в фоне)
+            response = await self.network.connect(
+                self.settings.get("host"), int(self.settings.get("port", 8888)),
+                self.settings.get("username"),
+                self.settings.get("password")
+            )
 
-        if response.get("status") == "ok":
-            self.chat_screen.add_system_message("Соединение восстановлено!", ft.Colors.GREEN)
-            await self.network.send({"action": "get_chats"})
-            await self.network.send({"action": "get_history", "chat_id": self.active_chat_id, "limit": 20})
-            self.page.run_task(self.network.listen)
-        else:
-            # Если сервер все еще лежит - уходим в рекурсию (пробуем снова)
+            if response.get("status") == "ok":
+                self.chat_screen.add_system_message("Соединение восстановлено!", ft.Colors.GREEN)
+                await self.network.send({"action": "get_chats"})
+                if self.active_chat_id:
+                    await self.network.send({"action": "get_history", "chat_id": self.active_chat_id, "limit": 20})
+                self.page.run_task(self.network.listen)
+                self.is_reconnecting = False
+            else:
+                self.is_reconnecting = False
+                # Если сервер все еще лежит - пробуем снова
+                self.page.run_task(self.on_net_disconnect)
+        except Exception as e:
+            self.is_reconnecting = False
             self.page.run_task(self.on_net_disconnect)
 
     async def on_net_message(self, data):

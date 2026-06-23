@@ -14,16 +14,13 @@ router = APIRouter(tags=["WebSockets"])
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession = Depends(get_db)):
+async def websocket_endpoint(websocket: WebSocket, token: str):
     # 1. Проверяем токен при подключении
     try:
         username = get_username_from_token(token)
     except Exception as e:
         await websocket.close(code=1008)  # 1008 - Ошибка авторизации
         return
-
-    # --- Узнаем, админ ли это ---
-    is_admin = await crud.is_user_admin(db, username)
 
     # 2. Регистрируем пользователя как "Онлайн"
     await manager.connect(websocket, username)
@@ -43,24 +40,24 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
                 chat_id = data.get("chat_id")
                 text = data.get("text")
 
-                # Проверяем, состоит ли юзер в чате
-                if not is_admin:
+                async with async_session_maker() as db:
+                    # Проверяем, состоит ли юзер в чате
                     if not await crud.is_user_in_chat(db, chat_id, username):
                         continue
 
-                # Сохраняем сообщение в БД
-                new_msg = await crud.create_message(db, chat_id, username, text)
+                    # Сохраняем сообщение в БД
+                    new_msg = await crud.create_message(db, chat_id, username, text)
 
-                msg_obj = {
-                    "id": new_msg.id,
-                    "sender": new_msg.sender,
-                    "text": new_msg.text,
-                    "file_name": None,
-                    "timestamp": new_msg.timestamp
-                }
+                    msg_obj = {
+                        "id": new_msg.id,
+                        "sender": new_msg.sender,
+                        "text": new_msg.text,
+                        "file_name": None,
+                        "timestamp": new_msg.timestamp
+                    }
 
-                # Находим всех участников чата
-                members = await crud.get_chat_member_usernames(db, chat_id)
+                    # Находим всех участников чата
+                    members = await crud.get_chat_member_usernames(db, chat_id)
 
                 # Рассылаем всем участникам
                 for member in members:
@@ -73,12 +70,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
             elif action == "typing":
                 chat_id = data.get("chat_id")
 
-                if not is_admin:
+                async with async_session_maker() as db:
                     if not await crud.is_user_in_chat(db, chat_id, username):
                         continue
 
-                # Находим всех участников
-                members = await crud.get_chat_member_usernames(db, chat_id)
+                    # Находим всех участников
+                    members = await crud.get_chat_member_usernames(db, chat_id)
 
                 # Рассылаем всем, кроме самого отправителя
                 for member in members:

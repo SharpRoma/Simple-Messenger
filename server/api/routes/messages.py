@@ -51,14 +51,10 @@ async def upload_file(
         db: AsyncSession = Depends(get_db)
 ):
     """Отправка файла чанками"""
-    user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
-    is_admin = user.is_admin if user else False
-
-    if not is_admin:
-        member_check = await db.execute(
-            select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username))
-        if not member_check.scalar_one_or_none():
-            raise HTTPException(status_code=403, detail="Доступ запрещен")
+    member_check = await db.execute(
+        select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.username == username))
+    if not member_check.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Доступ запрещен")
 
     ext = os.path.splitext(file.filename)[1]
     unique_name = f"{uuid.uuid4()}{ext}"
@@ -105,24 +101,18 @@ async def download_file(msg_id: int, username: str = Depends(get_current_user), 
 @router.delete("/{msg_id}")
 async def delete_message(msg_id: int, username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     msg = (await db.execute(select(Message).where(Message.id == msg_id))).scalar_one_or_none()
-    user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
 
     if not msg:
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
 
-    # Удалить может либо автор, либо АДМИН
-    if msg.sender != username and not user.is_admin:
+    # Удалить может только автор
+    if msg.sender != username:
         raise HTTPException(status_code=403, detail="Это не ваше сообщение")
 
     chat_id = msg.chat_id
-    file_path = msg.file_path
 
     await db.delete(msg)
     await db.commit()
-
-    # Физически удаляем файл с диска
-    if file_path and os.path.exists(file_path):
-        os.remove(file_path)
 
     # Уведомляем всех в чате через сокет
     members = (await db.execute(select(ChatMember.username).where(ChatMember.chat_id == chat_id))).scalars().all()

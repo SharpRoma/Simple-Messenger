@@ -19,12 +19,11 @@ class LoginScreen(ft.Container):
         self._build_ui()
 
     def _build_ui(self):
-        # 1. Поле IP (теперь оно expand=True, чтобы занять всё доступное место)
+        # 1. Поле хоста (теперь оно expand=True, чтобы занять всё доступное место)
         self.host_input = ft.TextField(
-            label="IP сервера",
+            label="Хост сервера",
             value=self.settings.get("host"),
             expand=True,
-            input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9\.]", replacement_string=""),
             on_submit=lambda e: self.port_input.focus()
         )
 
