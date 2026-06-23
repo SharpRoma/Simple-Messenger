@@ -25,7 +25,7 @@ class MainWindow:
         self.settings = self.settings_manager.load_settings()
 
         self.current_username = ""
-        self.active_chat_id = 1
+        self.active_chat_id = None
         self.chats_info = {}
         self.users_status = {}
         self.history_offset = 0
@@ -43,6 +43,7 @@ class MainWindow:
         self.page.theme_mode = ft.ThemeMode.DARK
 
         self.page.drawer = ft.NavigationDrawer(controls=[])
+        self.page.on_keyboard_event = self.handle_keyboard_event
 
         self.show_login_screen()
 
@@ -68,13 +69,22 @@ class MainWindow:
 
         return name
 
+    def handle_keyboard_event(self, e: ft.KeyboardEvent):
+        if e.key == "Escape" and self.is_logged_in and self.page.drawer:
+            async def toggle_drawer():
+                if self.page.drawer.open:
+                    await self.page.close_drawer()
+                else:
+                    await self.page.show_drawer()
+            self.page.run_task(toggle_drawer)
+
     def show_login_screen(self):
         self.page.clean()
         self.page.drawer = None
         self.is_logged_in = False
 
         self.current_username = ""
-        self.active_chat_id = 1
+        self.active_chat_id = None
         self.chats_info = {}
         self.pending_downloads = {}
         self.users_status = {}
@@ -101,6 +111,7 @@ class MainWindow:
             self.page.run_task(open_task)
 
         def handle_typing():
+            if not self.active_chat_id: return
             # Отправляем на сервер максимум 1 раз в 2 секунды
             import time
             now = time.time()
@@ -150,7 +161,6 @@ class MainWindow:
 
             self.show_chat_screen()
             await self.network.send({"action": "get_chats"})
-            await self.network.send({"action": "get_history", "chat_id": 1, "limit": 20, "offset": 0})
 
             self.page.run_task(self.network.listen)
 
@@ -166,6 +176,7 @@ class MainWindow:
         )
 
     def handle_send_message(self, text: str):
+        if not self.active_chat_id: return
         async def send_task():
             if text.startswith('/'):
                 parts = text.split()
@@ -250,6 +261,7 @@ class MainWindow:
         dialog.show()
 
     def handle_open_profile(self):
+        if not self.active_chat_id: return
         # Запрашиваем у сервера список участников группы
         self.page.run_task(self.network.send, {"action": "get_chat_members", "chat_id": self.active_chat_id})
 
@@ -356,6 +368,7 @@ class MainWindow:
     #       РАБОТА С ФАЙЛАМИ
     # ==========================================
     def handle_attach_file(self):
+        if not self.active_chat_id: return
         async def pick_task():
             try:
                 files = await ft.FilePicker().pick_files(allow_multiple=False)
@@ -393,6 +406,7 @@ class MainWindow:
         self.page.run_task(download_task)
 
     def handle_delete_message(self, msg_id):
+        if not self.active_chat_id: return
         self.page.run_task(self.network.send,
                            {"action": "delete_msg", "chat_id": self.active_chat_id, "msg_id": msg_id})
 
@@ -460,12 +474,32 @@ class MainWindow:
                 self.chat_screen.remove_message(data.get("msg_id"))
 
         elif action == "chat_list":
-            for c in data.get("chats", []):
+            chats = data.get("chats", [])
+            for c in chats:
                 self.chats_info[c['id']] = c
             self.update_drawer()
 
-        elif action in ["group_created", "chat_added", "member_added"]:
-            # Обновляем список чатов, если нас добавили или мы создали группу
+            # Если есть отложенный переход на новый чат
+            pending_id = getattr(self, 'pending_active_chat_id', None)
+            if pending_id and pending_id in self.chats_info:
+                self.pending_active_chat_id = None
+                self.handle_select_chat(pending_id)
+            elif self.active_chat_id not in self.chats_info:
+                if chats:
+                    # Ищем сначала Избранное
+                    saved_chat = next((c for c in chats if c.get('type') == 'saved'), None)
+                    target_chat = saved_chat if saved_chat else chats[0]
+                    self.handle_select_chat(target_chat['id'])
+            else:
+                self.update_chat_header()
+
+        elif action in ["group_created", "dialog_created"]:
+            # Сохраняем ID созданного чата, чтобы переключиться на него при обновлении списка
+            self.pending_active_chat_id = data.get("chat_id")
+            self.page.run_task(self.network.send, {"action": "get_chats"})
+
+        elif action in ["chat_added", "member_added"]:
+            # Обновляем список чатов, если нас добавили
             self.page.run_task(self.network.send, {"action": "get_chats"})
             if action == "member_added":
                 self.show_snackbar("Участник успешно добавлен!")
@@ -618,6 +652,11 @@ class MainWindow:
             ft.ListTile(leading=ft.Icon(ft.Icons.GROUP_ADD),
             title=ft.Text("Создать группу"),
             on_click=lambda e: self.show_create_group_modal()))
+        controls.append(ft.Divider())
+        controls.append(
+            ft.ListTile(leading=ft.Icon(ft.Icons.SETTINGS),
+            title=ft.Text("Настройки"),
+            on_click=lambda e: self.show_settings_modal()))
 
         if not self.page.drawer:
             self.page.drawer = ft.NavigationDrawer(controls=controls)
@@ -628,8 +667,9 @@ class MainWindow:
 
     def handle_select_chat(self, chat_id):
         if self.page.drawer:
-            self.page.drawer.open = False
-            self.page.update()
+            async def close_drawer_task():
+                await self.page.close_drawer()
+            self.page.run_task(close_drawer_task)
 
         self.active_chat_id = chat_id
         self.os.set_tray_badge(False)
@@ -638,6 +678,7 @@ class MainWindow:
         self.is_loading_history = True  # Блокируем скролл, пока не придет первая пачка
         self.has_more_history = True
 
+        self.update_chat_header()  # Обновляем заголовок чата сразу
         self.page.run_task(self.network.send, {"action": "get_history", "chat_id": chat_id, "limit": 20, "offset": 0})
 
     def handle_load_more_history(self):

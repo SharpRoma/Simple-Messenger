@@ -61,7 +61,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str, db: AsyncSession 
                         continue
 
                 # Сохраняем сообщение в БД
-                import time
                 new_msg = Message(
                     chat_id=chat_id,
                     sender=username,

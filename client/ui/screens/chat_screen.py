@@ -43,7 +43,7 @@ class ChatScreen(ft.Container):
         self._build_ui()
 
     def _build_ui(self):
-        self.chat_history = ft.ListView(expand=True, spacing=5, auto_scroll=True)
+        self.chat_history = ft.ListView(expand=True, spacing=5, auto_scroll=True, on_scroll=self._handle_scroll)
         self.msg_input = ft.TextField(
             hint_text="Написать сообщение...", expand=True,
             on_submit=self._submit_message,
@@ -107,7 +107,6 @@ class ChatScreen(ft.Container):
         expand=True
         )
 
-        self.chat_history = ft.ListView(expand=True, spacing=5, auto_scroll=True, on_scroll=self._handle_scroll)
 
     def set_chat_title(self, title: str, subtitle: str = "", show_info: bool = False, is_online: bool = False):
         self.chat_title.value = title
