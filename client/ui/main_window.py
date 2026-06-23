@@ -561,8 +561,11 @@ class MainWindow:
                     timestamp=msg['timestamp'],
                     msg_id=msg.get('id'),
                     file_name=msg.get('file_name'),
-                    updated_at=msg.get('updated_at')
+                    updated_at=msg.get('updated_at'),
+                    is_read=msg.get('is_read', False)
                 )
+                if msg['sender'] != self.current_username:
+                    self.page.run_task(self.network.send, {"action": "read_chat", "chat_id": chat_id})
             else:
                 self.chat_screen.add_system_message(f"[🔔] Новое сообщение в чате '{cname}'", ft.Colors.YELLOW)
 
@@ -586,7 +589,8 @@ class MainWindow:
                     text=msg.get('text', ''),
                     timestamp=msg['timestamp'],
                     file_name=msg.get('file_name'),
-                    updated_at=msg.get('updated_at')
+                    updated_at=msg.get('updated_at'),
+                    is_read=msg.get('is_read', False)
                 )
 
         elif action == "search_results":
@@ -605,8 +609,13 @@ class MainWindow:
                         timestamp=msg['timestamp'],
                         msg_id=msg.get('id'),
                         file_name=msg.get('file_name'),
-                        updated_at=msg.get('updated_at')
+                        updated_at=msg.get('updated_at'),
+                        is_read=msg.get('is_read', False)
                     )
+
+        elif action == "messages_read":
+            if data.get("chat_id") == self.active_chat_id:
+                self.chat_screen.mark_own_messages_as_read()
 
         elif action == "chat_list":
             chats = data.get("chats", [])
@@ -657,7 +666,7 @@ class MainWindow:
                     self.chat_screen.add_message(
                         sender=msg['sender'], text=msg.get('text', ''),
                         timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name'),
-                        updated_at=msg.get('updated_at')
+                        updated_at=msg.get('updated_at'), is_read=msg.get('is_read', False)
                     )
             else:
                 # Подгрузка СТАРЫХ сообщений

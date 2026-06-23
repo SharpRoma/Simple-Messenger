@@ -31,6 +31,23 @@ async def get_history(chat_id: int, limit: int = 50, offset: int = 0, username: 
     if not member_check.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Вы не состоите в этом чате")
 
+    # Помечаем сообщения от других пользователей как прочитанные
+    stmt = select(Message).where(
+        Message.chat_id == chat_id,
+        Message.sender != username,
+        Message.is_read == False
+    )
+    unread_result = await db.execute(stmt)
+    unread_messages = unread_result.scalars().all()
+    if unread_messages:
+        for m in unread_messages:
+            m.is_read = True
+        await db.commit()
+        # Рассылаем всем участникам чата оповещение о прочтении
+        members = (await db.execute(select(ChatMember.username).where(ChatMember.chat_id == chat_id))).scalars().all()
+        for member in members:
+            await manager.send_to_user(member, {"action": "messages_read", "chat_id": chat_id})
+
     # Грузим сообщения
     query = select(Message).where(Message.chat_id == chat_id).order_by(Message.timestamp.desc()).limit(limit).offset(
         offset)
@@ -38,8 +55,18 @@ async def get_history(chat_id: int, limit: int = 50, offset: int = 0, username: 
     messages = result.scalars().all()
 
     # Разворачиваем, чтобы старые были сверху
-    msg_list = [{"id": m.id, "sender": m.sender, "text": m.text, "file_name": m.file_name, "timestamp": m.timestamp, "updated_at": m.updated_at} for
-                m in reversed(messages)]
+    msg_list = [
+        {
+            "id": m.id,
+            "sender": m.sender,
+            "text": m.text,
+            "file_name": m.file_name,
+            "timestamp": m.timestamp,
+            "updated_at": m.updated_at,
+            "is_read": m.is_read
+        }
+        for m in reversed(messages)
+    ]
     return {"chat_id": chat_id, "messages": msg_list}
 
 
@@ -74,7 +101,7 @@ async def upload_file(
 
     # Рассылаем уведомление в сокеты
     msg_obj = {"id": new_msg.id, "sender": new_msg.sender, "text": "", "file_name": new_msg.file_name,
-               "timestamp": new_msg.timestamp, "updated_at": None}
+               "timestamp": new_msg.timestamp, "updated_at": None, "is_read": False}
     members = (await db.execute(select(ChatMember.username).where(ChatMember.chat_id == chat_id))).scalars().all()
 
     for member in members:
@@ -180,7 +207,8 @@ async def edit_message(
         "text": msg.text,
         "file_name": msg.file_name,
         "timestamp": msg.timestamp,
-        "updated_at": msg.updated_at
+        "updated_at": msg.updated_at,
+        "is_read": msg.is_read
     }
  
     members = (await db.execute(select(ChatMember.username).where(ChatMember.chat_id == msg.chat_id))).scalars().all()

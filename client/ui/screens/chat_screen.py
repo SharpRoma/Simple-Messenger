@@ -283,17 +283,39 @@ class ChatScreen(ft.Container):
                 except Exception: pass
                 break
 
-    def update_message(self, msg_id: int, sender: str, text: str, timestamp: float, file_name: str = None, updated_at: float = None):
+    def update_message(self, msg_id: int, sender: str, text: str, timestamp: float, file_name: str = None, updated_at: float = None, is_read: bool = False):
         target_key = f"msg_{msg_id}"
         for i, ctrl in enumerate(self.chat_history.controls):
             if getattr(ctrl, "key", None) == target_key:
-                new_row = self._create_message_row(sender, text, timestamp, msg_id, file_name, updated_at)
+                new_row = self._create_message_row(sender, text, timestamp, msg_id, file_name, updated_at, is_read)
                 self.chat_history.controls[i] = new_row
                 try:
                     self.chat_history.update()
                 except Exception:
                     pass
                 break
+
+    def mark_own_messages_as_read(self):
+        changed = False
+        for i, ctrl in enumerate(self.chat_history.controls):
+            if getattr(ctrl, "sender", None) == self.current_username and not getattr(ctrl, "is_read", False):
+                sender = getattr(ctrl, "sender", "")
+                text = getattr(ctrl, "text", "")
+                timestamp = getattr(ctrl, "timestamp", 0)
+                msg_id = getattr(ctrl, "msg_id", None)
+                file_name = getattr(ctrl, "file_name", None)
+                updated_at = getattr(ctrl, "updated_at", None)
+                
+                new_row = self._create_message_row(
+                    sender, text, timestamp, msg_id, file_name, updated_at, is_read=True
+                )
+                self.chat_history.controls[i] = new_row
+                changed = True
+        if changed:
+            try:
+                self.chat_history.update()
+            except Exception:
+                pass
 
     def _handle_scroll(self, e):
         try:
@@ -302,7 +324,7 @@ class ChatScreen(ft.Container):
         except Exception:
             pass
 
-    def _create_message_row(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, updated_at: float = None):
+    def _create_message_row(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, updated_at: float = None, is_read: bool = False):
         ts = datetime.fromtimestamp(timestamp).strftime('%H:%M')
         is_own = (sender == self.current_username)
         content = None
@@ -313,6 +335,13 @@ class ChatScreen(ft.Container):
 
         # Маркер измененного сообщения
         edited_label = " (изменено)" if updated_at else ""
+
+        # Галочки прочтения
+        tick_str = ""
+        tick_color = ft.Colors.GREY_500
+        if is_own:
+            tick_str = " ✓✓" if is_read else " ✓"
+            tick_color = ft.Colors.BLUE_300 if is_read else ft.Colors.GREY_500
 
         if file_name:
             ext = file_name.lower().split('.')[-1]
@@ -330,9 +359,16 @@ class ChatScreen(ft.Container):
                                      alignment=ft.Alignment.CENTER, width=200, height=200)
                     ])
 
+                header_text = ft.Text(
+                    spans=[
+                        ft.TextSpan(f"[{ts}] {sender}:{edited_label}", style=ft.TextStyle(color=ft.Colors.GREY_400, size=12)),
+                        ft.TextSpan(tick_str, style=ft.TextStyle(color=tick_color, size=12, weight="bold"))
+                    ]
+                )
+
                 content = ft.Container(
                     content=ft.Column([
-                        ft.Text(f"[{ts}] {sender}:{edited_label}", color=ft.Colors.GREY_400, size=12),
+                        header_text,
                         thumb
                     ], spacing=5),
                     on_click=lambda e, m_url=media_url, is_v=is_video, fname=file_name: self.on_open_media(m_url, is_v, fname),
@@ -370,11 +406,18 @@ class ChatScreen(ft.Container):
 
                 play_btn.on_click = play_pause_click
 
+                header_text = ft.Text(
+                    spans=[
+                        ft.TextSpan(f"[{ts}] {sender}:{edited_label}", style=ft.TextStyle(color=ft.Colors.GREY_400, size=12)),
+                        ft.TextSpan(tick_str, style=ft.TextStyle(color=tick_color, size=12, weight="bold"))
+                    ]
+                )
+
                 content = ft.Container(
                     content=ft.Row([
                         play_btn,
                         ft.Column([
-                            ft.Text(f"[{ts}] {sender}:{edited_label}", color=ft.Colors.GREY_400, size=12),
+                            header_text,
                             ft.Text(f"🎵 {file_name}", color=ft.Colors.BLUE_200, italic=True)
                         ], spacing=0)
                     ]),
@@ -384,11 +427,29 @@ class ChatScreen(ft.Container):
 
             # 3. Любой другой файл (Документ)
             else:
-                content = ft.Text(f"[{ts}] {sender}: 📎 Файл: {file_name}{edited_label}", color=ft.Colors.BLUE_200, italic=True, expand=True)
+                if is_own:
+                    content = ft.Text(
+                        spans=[
+                            ft.TextSpan(f"[{ts}] {sender}: 📎 Файл: {file_name}{edited_label}", style=ft.TextStyle(color=ft.Colors.BLUE_200, italic=True)),
+                            ft.TextSpan(tick_str, style=ft.TextStyle(color=tick_color, weight="bold"))
+                        ],
+                        expand=True
+                    )
+                else:
+                    content = ft.Text(f"[{ts}] {sender}: 📎 Файл: {file_name}{edited_label}", color=ft.Colors.BLUE_200, italic=True, expand=True)
         else:
             # 4. Текстовое сообщение
-            msg_text = f"[{ts}] {sender}: {text}{edited_label}"
-            content = ft.Text(msg_text, font_family="Consolas", selectable=True, expand=True)
+            if is_own:
+                content = ft.Text(
+                    spans=[
+                        ft.TextSpan(f"[{ts}] {sender}: {text}{edited_label}", style=ft.TextStyle(font_family="Consolas")),
+                        ft.TextSpan(tick_str, style=ft.TextStyle(color=tick_color, weight="bold"))
+                    ],
+                    expand=True
+                )
+            else:
+                msg_text = f"[{ts}] {sender}: {text}{edited_label}"
+                content = ft.Text(msg_text, font_family="Consolas", selectable=True, expand=True)
 
         # Контекстное меню "Три точки" (PopupMenuButton)
         menu_items = []
@@ -421,15 +482,23 @@ class ChatScreen(ft.Container):
             tooltip="Действия"
         )
 
-        return ft.Row(
+        row = ft.Row(
             controls=[content, actions_menu],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.START,
             key=f"msg_{msg_id}" if msg_id else None
         )
+        row.msg_id = msg_id
+        row.sender = sender
+        row.text = text
+        row.timestamp = timestamp
+        row.file_name = file_name
+        row.updated_at = updated_at
+        row.is_read = is_read
+        return row
 
-    def add_message(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, updated_at: float = None):
-        row = self._create_message_row(sender, text, timestamp, msg_id, file_name, updated_at)
+    def add_message(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, updated_at: float = None, is_read: bool = False):
+        row = self._create_message_row(sender, text, timestamp, msg_id, file_name, updated_at, is_read)
         self.chat_history.controls.append(row)
         try:
             self.chat_history.update()
@@ -448,7 +517,8 @@ class ChatScreen(ft.Container):
                 msg['timestamp'],
                 msg.get('id'),
                 msg.get('file_name'),
-                msg.get('updated_at')
+                msg.get('updated_at'),
+                msg.get('is_read', False)
             )
             rows.append(row)
 

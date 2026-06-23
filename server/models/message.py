@@ -1,7 +1,7 @@
 import time
 import os
 import logging
-from sqlalchemy import Integer, String, ForeignKey, Text, event
+from sqlalchemy import Integer, String, ForeignKey, Text, event, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base
 
@@ -21,6 +21,7 @@ class Message(Base):
 
     timestamp: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
     updated_at: Mapped[int] = mapped_column(Integer, nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 @event.listens_for(Message, 'after_delete')

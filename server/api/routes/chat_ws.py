@@ -2,12 +2,14 @@ import json
 import time
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from core.database import get_db
 from api.dependencies import get_username_from_token
 from api.websockets import manager
 from core.database import async_session_maker
 from core import crud
+from models.message import Message
 
 
 router = APIRouter(tags=["WebSockets"])
@@ -53,7 +55,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
                         "sender": new_msg.sender,
                         "text": new_msg.text,
                         "file_name": None,
-                        "timestamp": new_msg.timestamp
+                        "timestamp": new_msg.timestamp,
+                        "updated_at": None,
+                        "is_read": False
                     }
 
                     # Находим всех участников чата
@@ -66,6 +70,26 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
                         "chat_id": chat_id,
                         "message": msg_obj
                     })
+
+            elif action == "read_chat":
+                chat_id = data.get("chat_id")
+                async with async_session_maker() as db:
+                    if await crud.is_user_in_chat(db, chat_id, username):
+                        stmt = select(Message).where(
+                            Message.chat_id == chat_id,
+                            Message.sender != username,
+                            Message.is_read == False
+                        )
+                        result = await db.execute(stmt)
+                        unread = result.scalars().all()
+                        if unread:
+                            for m in unread:
+                                m.is_read = True
+                            await db.commit()
+                            
+                            members = await crud.get_chat_member_usernames(db, chat_id)
+                            for member in members:
+                                await manager.send_to_user(member, {"action": "messages_read", "chat_id": chat_id})
 
             elif action == "typing":
                 chat_id = data.get("chat_id")
