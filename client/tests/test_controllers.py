@@ -24,7 +24,7 @@ class MockPage:
     def update(self):
         pass
 
-    def run_task(self, task):
+    def run_task(self, task, *args, **kwargs):
         pass
 
 
@@ -57,3 +57,30 @@ def test_app_controller_init():
         
         MockAuth.assert_called_once()
         MockChat.assert_called_once()
+
+
+def test_chat_controller_scroll_preservation():
+    page = MockPage()
+    app = MagicMock()
+    app.event_bus = MagicMock()
+    app.db = MagicMock()
+    app.db.get_messages.return_value = []
+    app.network = MagicMock()
+    app.settings = {}
+
+    from ui.controllers.chat_controller import ChatController
+    with patch("ui.controllers.chat_controller.ChatScreen") as MockChatScreen:
+        chat_ctrl = ChatController(page, app)
+        
+        # Задаем фейковый chat_screen
+        mock_screen = MagicMock()
+        mock_screen.current_scroll_pos = 150.0
+        chat_ctrl.chat_screen = mock_screen
+        
+        # Переключаем с чата 1 на чат 2
+        chat_ctrl.active_chat_id = 1
+        chat_ctrl.handle_select_chat(2)
+        
+        # Проверяем, что позиция скролла чата 1 сохранилась
+        assert chat_ctrl.scroll_positions[1] == 150.0
+

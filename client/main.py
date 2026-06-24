@@ -25,18 +25,27 @@ def main(page: ft.Page):
     import sys
     import threading
 
+    multi_instance = "--multi" in sys.argv or "--test" in sys.argv
     port = 48951
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect(('127.0.0.1', port))
-        s.sendall(b"restore")
-        s.close()
-        logger.info("Другая копия приложения уже запущена. Отправлен сигнал развернуть окно. Завершение работы.")
-        sys.exit(0)
-    except socket.error:
-        pass
+
+    if not multi_instance:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect(('127.0.0.1', port))
+            s.sendall(b"restore")
+            s.close()
+            logger.info("Другая копия приложения уже запущена. Отправлен сигнал развернуть окно. Завершение работы.")
+            try:
+                page.window.destroy()
+            except Exception:
+                pass
+            return
+        except socket.error:
+            pass
 
     def listen_restore_signals():
+        if multi_instance:
+            return  # Не слушаем порт в режиме мульти-запуска, чтобы не мешать другим копиям
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:

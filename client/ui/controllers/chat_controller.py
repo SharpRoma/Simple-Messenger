@@ -43,6 +43,7 @@ class ChatController(BaseController):
         self.editing_new_file = None
         self.editing_new_filename = None
         self.is_searching = False
+        self.scroll_positions = {}
         
         self.profile_dialog = None
         self.subscribe_to_events()
@@ -78,6 +79,7 @@ class ChatController(BaseController):
         self.editing_new_filename = None
         self.is_searching = False
         self.profile_dialog = None
+        self.scroll_positions = {}
 
     def get_chat_name(self, chat_data: dict) -> str:
         name = chat_data.get('name', 'Неизвестный чат')
@@ -554,24 +556,12 @@ class ChatController(BaseController):
         chat_data = self.chats_info.get(self.active_chat_id, {})
         if chat_data.get("type") == "secret":
             results = self.app.db.search_messages(self.active_chat_id, query)
-            self.chat_screen.clear_messages()
             self.is_searching = True
             self.app.show_snackbar(f"Найдено: {len(results)} сообщений")
-            for i, msg in enumerate(results):
-                self.chat_screen.add_message(
-                    sender=msg['sender'],
-                    text=msg.get('text', ''),
-                    timestamp=msg['timestamp'],
-                    msg_id=msg.get('id'),
-                    file_name=msg.get('file_name'),
-                    local_path=msg.get('local_path'),
-                    updated_at=msg.get('updated_at'),
-                    is_read=msg.get('is_read', False),
-                    scroll_to_bottom=(i == len(results) - 1),
-                    scroll_duration=0,
-                    force_scroll=(i == len(results) - 1)
-                )
-            self.chat_screen.finish_initial_loading()
+            if self.chat_screen:
+                self.chat_screen.clear_messages(auto_scroll=True)
+                self.chat_screen.set_messages(results)
+                self.chat_screen.finish_initial_loading()
         else:
             self.page.run_task(self.app.network.send, {
                 "action": "search_messages",
@@ -732,12 +722,12 @@ class ChatController(BaseController):
             chat_id = data.get("chat_id")
             if chat_id == self.active_chat_id and self.chat_screen:
                 messages = data.get("messages", [])
-                self.chat_screen.clear_messages()
                 self.is_searching = True
-                
                 self.app.show_snackbar(f"Найдено: {len(messages)} сообщений")
                 
-                for i, msg in enumerate(messages):
+                enriched_results = []
+                for msg in messages:
+                    msg_copy = dict(msg)
                     local_path = None
                     m_id = msg.get('id')
                     if m_id:
@@ -746,20 +736,11 @@ class ChatController(BaseController):
                             row = cursor.fetchone()
                             if row:
                                 local_path = row['local_path']
-
-                    self.chat_screen.add_message(
-                        sender=msg['sender'],
-                        text=msg.get('text', ''),
-                        timestamp=msg['timestamp'],
-                        msg_id=msg.get('id'),
-                        file_name=msg.get('file_name'),
-                        local_path=local_path,
-                        updated_at=msg.get('updated_at'),
-                        is_read=msg.get('is_read', False),
-                        scroll_to_bottom=(i == len(messages) - 1),
-                        scroll_duration=0,
-                        force_scroll=(i == len(messages) - 1)
-                    )
+                    msg_copy['local_path'] = local_path
+                    enriched_results.append(msg_copy)
+                
+                self.chat_screen.clear_messages(auto_scroll=True)
+                self.chat_screen.set_messages(enriched_results)
                 self.chat_screen.finish_initial_loading()
 
         elif action == "messages_read":
@@ -828,21 +809,15 @@ class ChatController(BaseController):
                 enriched_msgs = self.app.db.get_messages(chat_id, limit=20, offset=offset)
 
             if offset == 0:
-                if self.chat_screen:
-                    self.chat_screen.clear_messages()
                 self.update_chat_header()
                 if self.chat_screen:
-                    for i, msg in enumerate(enriched_msgs):
-                        self.chat_screen.add_message(
-                            sender=msg['sender'], text=msg.get('text', ''),
-                            timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name'),
-                            local_path=msg.get('local_path'),
-                            updated_at=msg.get('updated_at'), is_read=msg.get('is_read', False),
-                            scroll_to_bottom=(i == len(enriched_msgs) - 1),
-                            scroll_duration=0,
-                            force_scroll=(i == len(enriched_msgs) - 1)
-                        )
-                    self.chat_screen.finish_initial_loading()
+                    saved_pos = self.scroll_positions.get(chat_id)
+                    self.chat_screen.clear_messages(auto_scroll=(saved_pos is None))
+                    self.chat_screen.set_messages(enriched_msgs)
+                    if saved_pos is not None:
+                        self.chat_screen.restore_scroll_position(saved_pos)
+                    else:
+                        self.chat_screen.finish_initial_loading()
             else:
                 if enriched_msgs and self.chat_screen:
                     self.chat_screen.prepend_messages(enriched_msgs)
@@ -857,21 +832,15 @@ class ChatController(BaseController):
                     self.has_more_history = False
                 else:
                     if offset == 0:
-                        if self.chat_screen:
-                            self.chat_screen.clear_messages()
                         self.update_chat_header()
                         if self.chat_screen:
-                            for i, msg in enumerate(cached_msgs):
-                                self.chat_screen.add_message(
-                                    sender=msg['sender'], text=msg.get('text', ''),
-                                    timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name'),
-                                    local_path=msg.get('local_path'),
-                                    updated_at=msg.get('updated_at'), is_read=msg.get('is_read', False),
-                                    scroll_to_bottom=(i == len(cached_msgs) - 1),
-                                    scroll_duration=0,
-                                    force_scroll=(i == len(cached_msgs) - 1)
-                                )
-                            self.chat_screen.finish_initial_loading()
+                            saved_pos = self.scroll_positions.get(chat_id)
+                            self.chat_screen.clear_messages(auto_scroll=(saved_pos is None))
+                            self.chat_screen.set_messages(cached_msgs)
+                            if saved_pos is not None:
+                                self.chat_screen.restore_scroll_position(saved_pos)
+                            else:
+                                self.chat_screen.finish_initial_loading()
                     else:
                         if self.chat_screen:
                             self.chat_screen.prepend_messages(cached_msgs)
@@ -1093,6 +1062,10 @@ class ChatController(BaseController):
                 await self.page.close_drawer()
             self.page.run_task(close_drawer_task)
 
+        # Сохраняем позицию скролла предыдущего активного чата перед переключением
+        if self.active_chat_id is not None and self.chat_screen:
+            self.scroll_positions[self.active_chat_id] = self.chat_screen.current_scroll_pos
+
         self.active_chat_id = chat_id
         self.app.os.set_tray_badge(False)
 
@@ -1103,19 +1076,15 @@ class ChatController(BaseController):
         self.update_chat_header()
 
         if self.chat_screen:
-            self.chat_screen.clear_messages()
+            saved_pos = self.scroll_positions.get(chat_id)
+            self.chat_screen.clear_messages(auto_scroll=(saved_pos is None))
             cached_msgs = self.app.db.get_messages(chat_id, limit=20, offset=0)
-            for i, msg in enumerate(cached_msgs):
-                self.chat_screen.add_message(
-                    sender=msg['sender'], text=msg.get('text', ''),
-                    timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name'),
-                    local_path=msg.get('local_path'),
-                    updated_at=msg.get('updated_at'), is_read=msg.get('is_read', False),
-                    scroll_to_bottom=(i == len(cached_msgs) - 1),
-                    scroll_duration=0,
-                    force_scroll=(i == len(cached_msgs) - 1)
-                )
-            self.chat_screen.finish_initial_loading()
+            self.chat_screen.set_messages(cached_msgs)
+            
+            if saved_pos is not None:
+                self.chat_screen.restore_scroll_position(saved_pos)
+            else:
+                self.chat_screen.finish_initial_loading()
 
         self.page.run_task(self.app.network.send, {"action": "get_history", "chat_id": chat_id, "limit": 20, "offset": 0})
 

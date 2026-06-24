@@ -57,6 +57,7 @@ class ChatScreen(ft.Container):
         self.is_pinned = False
         self.is_near_bottom = True
         self.is_initial_loading = False
+        self.current_scroll_pos = 0.0
         self._build_ui()
 
     def _build_ui(self):
@@ -304,16 +305,62 @@ class ChatScreen(ft.Container):
         self.page.run_task(focus_task)
 
     # --- Публичные методы для истории ---
-    def clear_messages(self):
+    def clear_messages(self, auto_scroll: bool = False):
         self.chat_history.controls.clear()
         self.is_near_bottom = True
         self.is_initial_loading = True
+        self.chat_history.auto_scroll = auto_scroll
         try: self.chat_history.update()
         except Exception: pass
 
+    def set_messages(self, messages: list):
+        self.chat_history.controls = [
+            self._create_message_row(
+                msg['sender'],
+                msg.get('text', ''),
+                msg['timestamp'],
+                msg.get('id'),
+                msg.get('file_name'),
+                msg.get('local_path'),
+                msg.get('updated_at'),
+                msg.get('is_read', False)
+            )
+            for msg in messages
+        ]
+        self.is_near_bottom = True
+        self.is_initial_loading = True
+        try:
+            self.chat_history.update()
+        except Exception:
+            pass
+
     def finish_initial_loading(self):
-        if not self.chat_history.controls:
+        self.is_initial_loading = False
+        if self.chat_history.auto_scroll:
+            async def disable_auto_scroll():
+                import asyncio
+                await asyncio.sleep(0.1)
+                self.chat_history.auto_scroll = False
+                try:
+                    self.chat_history.update()
+                except Exception:
+                    pass
+            self.page.run_task(disable_auto_scroll)
+
+    def restore_scroll_position(self, offset: float, duration: int = 0):
+        async def restore_task():
+            import asyncio
+            await asyncio.sleep(0.08)
+            try:
+                if duration and duration > 0:
+                    await self.chat_history.scroll_to(offset=offset, duration=duration)
+                else:
+                    await self.chat_history.scroll_to(offset=offset)
+                self.chat_history.update()
+            except Exception:
+                pass
             self.is_initial_loading = False
+        self.page.run_task(restore_task)
 
     def add_system_message(self, text: str, color=ft.Colors.WHITE):
         row = ft.Row([ft.Text(text, color=color, font_family="Consolas", expand=True)])
@@ -375,6 +422,8 @@ class ChatScreen(ft.Container):
             if self.is_initial_loading:
                 return
 
+            self.current_scroll_pos = scroll_pos
+
             if scroll_pos < 50:
                 self.on_load_more_history()
         except Exception:
@@ -382,7 +431,7 @@ class ChatScreen(ft.Container):
 
     def _create_message_row(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, local_path: str = None, updated_at: float = None, is_read: bool = False):
         ts = datetime.fromtimestamp(timestamp).strftime('%H:%M')
-        is_own = (sender == self.current_username)
+        is_own = (sender.lower() == self.current_username.lower())
         content = None
 
         img_exts = ['png', 'jpg', 'jpeg', 'gif', 'webp']
@@ -637,21 +686,15 @@ class ChatScreen(ft.Container):
     def scroll_to_bottom(self, duration: int = 0):
         async def scroll_task():
             import asyncio
-            for delay in [0.05, 0.15]:
-                await asyncio.sleep(delay)
-                if not self.chat_history.controls:
-                    return
-                last_control = self.chat_history.controls[-1]
-                if not getattr(last_control, "key", None):
-                    last_control.key = "temp_last_msg"
-                    try:
-                        self.chat_history.update()
-                    except Exception:
-                        pass
-                try:
-                    self.chat_history.scroll_to(key=last_control.key, duration=duration)
-                except Exception:
-                    pass
+            await asyncio.sleep(0.08)
+            try:
+                if duration and duration > 0:
+                    await self.chat_history.scroll_to(offset=-1, duration=duration)
+                else:
+                    await self.chat_history.scroll_to(offset=-1)
+                self.chat_history.update()
+            except Exception:
+                pass
             self.is_near_bottom = True
             self.is_initial_loading = False
         self.page.run_task(scroll_task)
@@ -661,7 +704,7 @@ class ChatScreen(ft.Container):
         self.chat_history.controls.append(row)
         try:
             self.chat_history.update()
-            is_own = (sender == self.current_username)
+            is_own = (sender.lower() == self.current_username.lower())
             if scroll_to_bottom and (force_scroll or self.is_near_bottom or is_own):
                 self.scroll_to_bottom(duration=scroll_duration)
         except Exception:
