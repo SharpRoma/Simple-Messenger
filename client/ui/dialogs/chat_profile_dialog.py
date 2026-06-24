@@ -2,29 +2,7 @@ import flet as ft
 from datetime import datetime
 from .base_dialog import BaseDialog
 import re
-import webbrowser
-
-def open_file_in_default_app(filepath: str):
-    import subprocess
-    import platform
-    import os
-    try:
-        system = platform.system()
-        if system == "Darwin":
-            subprocess.run(["open", filepath])
-        elif system == "Windows":
-            os.startfile(filepath)
-        else:
-            subprocess.run(["xdg-open", filepath])
-    except Exception:
-        pass
-
-def open_url_in_browser(url: str):
-    try:
-        webbrowser.open(url)
-    except Exception:
-        pass
-
+from system.utils import open_file_in_default_app, open_url_in_browser, open_folder_and_select_file
 
 class ChatProfileDialog(BaseDialog):
     def __init__(self, page: ft.Page, chat_name: str, chat_type: str, members: list, files: list, links: list, on_add_click, on_download_file, on_open_media):
@@ -51,27 +29,19 @@ class ChatProfileDialog(BaseDialog):
         actions.append(ft.TextButton("Закрыть", on_click=lambda e: self.close()))
 
         # Собираем окно
+        # Вычисляем размеры динамически на основе размеров текущего окна страницы
+        dialog_width = min(380, max(280, self.page.window.width - 40))
+        dialog_height = min(380, max(280, self.page.window.height - 100))
+
         self.dialog = ft.AlertDialog(
             title=ft.Text(f"Информация: {self.chat_name}", weight="bold"),
-            content=ft.Container(content=self.tabs_container, width=380, height=350),
+            content=ft.Container(content=self.tabs_container, width=dialog_width, height=dialog_height),
             actions=actions
         )
 
     def rebuild_tabs(self):
         def open_folder_action(path):
-            import subprocess
-            import platform
-            import os
-            try:
-                system = platform.system()
-                if system == "Darwin":
-                    subprocess.run(["open", "-R", path])
-                elif system == "Windows":
-                    subprocess.run(["explorer", "/select,", os.path.normpath(path)])
-                else:
-                    subprocess.run(["xdg-open", os.path.dirname(path)])
-            except Exception:
-                pass
+            open_folder_and_select_file(path)
 
         # Разделяем файлы по категориям
         media_list = []

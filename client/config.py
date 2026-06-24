@@ -116,7 +116,9 @@ def load_settings():
         "password": "",
         "auto_login": False,
         "auto_start": False,
-        "notify_always": True
+        "notify_always": True,
+        "cache_cleanup_enabled": False,
+        "cache_max_size_mb": 200
     }
 
     if SETTINGS_FILE.exists():

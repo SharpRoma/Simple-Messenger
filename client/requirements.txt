@@ -5,3 +5,4 @@ keyring==25.7.0
 pyinstaller==6.20.0
 websockets==16.0
 cryptography==49.0.0
+sqlalchemy==2.0.50

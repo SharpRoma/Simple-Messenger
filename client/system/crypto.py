@@ -1,31 +1,63 @@
 import os
 import base64
+import logging
 from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+logger = logging.getLogger("messenger.crypto")
+
 class CryptoManager:
-    def __init__(self, key_dir: Path):
+    def __init__(self, key_dir: Path, username: str = "default"):
         self.key_dir = key_dir
+        self.username = username
         self.priv_key_path = key_dir / "private_key.pem"
         self.pub_key_path = key_dir / "public_key.pem"
         self.private_key = None
         self.public_key = None
 
+    def _get_or_create_passphrase(self) -> str:
+        import keyring
+        import secrets
+        
+        passphrase = keyring.get_password("SimpleMessenger_KeysPass", self.username)
+        if not passphrase:
+            passphrase = secrets.token_hex(32)
+            try:
+                keyring.set_password("SimpleMessenger_KeysPass", self.username, passphrase)
+            except Exception as e:
+                logger.error(f"Failed to save key passphrase in keyring: {e}")
+                passphrase = f"fallback_passphrase_{self.username}"
+        return passphrase
+
     def init_keys(self):
-        """Загружает или генерирует новую пару ключей RSA-2048"""
+        """Загружает или генерирует новую пару ключей RSA-2048 (приватный ключ шифруется)"""
+        passphrase = self._get_or_create_passphrase()
+        
         if self.priv_key_path.exists() and self.pub_key_path.exists():
             try:
                 with open(self.priv_key_path, "rb") as f:
+                    key_data = f.read()
+                
+                # Пробуем загрузить как зашифрованный
+                try:
                     self.private_key = serialization.load_pem_private_key(
-                        f.read(), password=None
+                        key_data, password=passphrase.encode("utf-8")
                     )
+                except (ValueError, TypeError):
+                    # Если ключ незашифрован (или пароль неверен), пробуем загрузить без пароля (для старых версий)
+                    self.private_key = serialization.load_pem_private_key(
+                        key_data, password=None
+                    )
+                    # Если загрузка удалась, шифруем и пересохраняем (автоматический апгрейд)
+                    self._save_private_key(passphrase)
+
                 with open(self.pub_key_path, "rb") as f:
                     self.public_key = serialization.load_pem_public_key(f.read())
                 return
-            except Exception:
-                pass  # Если файлы повреждены, пересоздаем
+            except Exception as e:
+                logger.error(f"Failed to load keys: {e}")
 
         # Генерируем новую пару
         self.private_key = rsa.generate_private_key(
@@ -34,15 +66,7 @@ class CryptoManager:
         )
         self.public_key = self.private_key.public_key()
 
-        # Сохраняем приватный ключ
-        pem = self.private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-        self.key_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.priv_key_path, "wb") as f:
-            f.write(pem)
+        self._save_private_key(passphrase)
 
         # Сохраняем публичный ключ
         pem_pub = self.public_key.public_bytes(
@@ -51,6 +75,17 @@ class CryptoManager:
         )
         with open(self.pub_key_path, "wb") as f:
             f.write(pem_pub)
+
+    def _save_private_key(self, passphrase: str):
+        """Шифрует и сохраняет приватный ключ на диск"""
+        pem = self.private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.BestAvailableEncryption(passphrase.encode("utf-8"))
+        )
+        self.key_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.priv_key_path, "wb") as f:
+            f.write(pem)
 
     def get_public_key_pem(self) -> str:
         """Возвращает публичный ключ в формате PEM (string)"""

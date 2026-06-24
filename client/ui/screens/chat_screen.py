@@ -1,23 +1,10 @@
 import flet as ft
 from datetime import datetime
 import os
-import platform
-import subprocess
 import logging
+from system.utils import open_file_in_default_app, open_folder_and_select_file
 
 logger = logging.getLogger("messenger.chat_screen")
-
-def open_file_in_default_app(filepath: str):
-    try:
-        system = platform.system()
-        if system == "Darwin":
-            subprocess.run(["open", filepath])
-        elif system == "Windows":
-            os.startfile(filepath)
-        else:
-            subprocess.run(["xdg-open", filepath])
-    except Exception as err:
-        logger.error(f"Failed to open file: {err}")
 
 
 class ChatScreen(ft.Container):
@@ -68,10 +55,12 @@ class ChatScreen(ft.Container):
         self.on_clear_search = on_clear_search
 
         self.is_pinned = False
+        self.is_near_bottom = True
+        self.is_initial_loading = False
         self._build_ui()
 
     def _build_ui(self):
-        self.chat_history = ft.ListView(expand=True, spacing=5, auto_scroll=True, on_scroll=self._handle_scroll)
+        self.chat_history = ft.ListView(expand=True, spacing=5, auto_scroll=False, on_scroll=self._handle_scroll)
         self.msg_input = ft.TextField(
             hint_text="Написать сообщение...", expand=True,
             on_submit=self._submit_message,
@@ -229,6 +218,7 @@ class ChatScreen(ft.Container):
             except Exception:
                 pass
             self.on_send_message(text)
+            self.focus_input()
 
     def _toggle_pin(self, e):
         self.is_pinned = not self.is_pinned
@@ -297,12 +287,33 @@ class ChatScreen(ft.Container):
             self.msg_input.update()
         except Exception:
             pass
+        self.focus_input()
+
+    def focus_input(self):
+        async def focus_task():
+            import asyncio
+            for delay in [0.1, 0.3, 0.6]:
+                await asyncio.sleep(delay)
+                if not hasattr(self, 'page') or not self.page:
+                    break
+                try:
+                    self.msg_input.focus()
+                    self.msg_input.update()
+                except Exception:
+                    pass
+        self.page.run_task(focus_task)
 
     # --- Публичные методы для истории ---
     def clear_messages(self):
         self.chat_history.controls.clear()
+        self.is_near_bottom = True
+        self.is_initial_loading = True
         try: self.chat_history.update()
         except Exception: pass
+
+    def finish_initial_loading(self):
+        if not self.chat_history.controls:
+            self.is_initial_loading = False
 
     def add_system_message(self, text: str, color=ft.Colors.WHITE):
         row = ft.Row([ft.Text(text, color=color, font_family="Consolas", expand=True)])
@@ -357,7 +368,14 @@ class ChatScreen(ft.Container):
 
     def _handle_scroll(self, e):
         try:
-            if float(e.pixels) < 50:
+            scroll_pos = float(e.pixels)
+            max_scroll = float(e.max_scroll_extent)
+            self.is_near_bottom = (max_scroll - scroll_pos < 100)
+
+            if self.is_initial_loading:
+                return
+
+            if scroll_pos < 50:
                 self.on_load_more_history()
         except Exception:
             pass
@@ -532,18 +550,7 @@ class ChatScreen(ft.Container):
                         btn_label = "Показать в папке"
 
                     def on_show_click(e, path=local_path):
-                        import subprocess
-                        import platform
-                        try:
-                            sys_name = platform.system()
-                            if sys_name == "Darwin":
-                                subprocess.run(["open", "-R", path])
-                            elif sys_name == "Windows":
-                                subprocess.run(["explorer", "/select,", os.path.normpath(path)])
-                            else:
-                                subprocess.run(["xdg-open", os.path.dirname(path)])
-                        except Exception as err:
-                            pass
+                        open_folder_and_select_file(path)
 
                     show_finder_btn = ft.TextButton(
                         text=btn_label,
@@ -627,18 +634,40 @@ class ChatScreen(ft.Container):
         container.is_read = is_read
         return container
 
-    def add_message(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, local_path: str = None, updated_at: float = None, is_read: bool = False):
+    def scroll_to_bottom(self, duration: int = 0):
+        async def scroll_task():
+            import asyncio
+            for delay in [0.05, 0.15]:
+                await asyncio.sleep(delay)
+                if not self.chat_history.controls:
+                    return
+                last_control = self.chat_history.controls[-1]
+                if not getattr(last_control, "key", None):
+                    last_control.key = "temp_last_msg"
+                    try:
+                        self.chat_history.update()
+                    except Exception:
+                        pass
+                try:
+                    self.chat_history.scroll_to(key=last_control.key, duration=duration)
+                except Exception:
+                    pass
+            self.is_near_bottom = True
+            self.is_initial_loading = False
+        self.page.run_task(scroll_task)
+
+    def add_message(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, local_path: str = None, updated_at: float = None, is_read: bool = False, scroll_to_bottom: bool = True, scroll_duration: int = 0, force_scroll: bool = False):
         row = self._create_message_row(sender, text, timestamp, msg_id, file_name, local_path, updated_at, is_read)
         self.chat_history.controls.append(row)
         try:
             self.chat_history.update()
+            is_own = (sender == self.current_username)
+            if scroll_to_bottom and (force_scroll or self.is_near_bottom or is_own):
+                self.scroll_to_bottom(duration=scroll_duration)
         except Exception:
             pass
 
     def prepend_messages(self, messages: list):
-        was_auto = self.chat_history.auto_scroll
-        self.chat_history.auto_scroll = False
-
         rows = []
         for msg in messages:
             row = self._create_message_row(
@@ -656,8 +685,6 @@ class ChatScreen(ft.Container):
         self.chat_history.controls = rows + self.chat_history.controls
 
         try:
-            self.chat_history.update()
-            self.chat_history.auto_scroll = was_auto
             self.chat_history.update()
         except Exception:
             pass

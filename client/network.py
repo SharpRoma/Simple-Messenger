@@ -9,9 +9,8 @@ logger = logging.getLogger("messenger.network")
 
 
 class MessengerNetwork:
-    def __init__(self, on_message_received, on_disconnected):
-        self.on_message_received = on_message_received
-        self.on_disconnected = on_disconnected
+    def __init__(self, event_bus):
+        self.event_bus = event_bus
 
         self.token = None
         self.host = None
@@ -24,6 +23,11 @@ class MessengerNetwork:
         self.ssl_context = ssl.create_default_context()
         self.ssl_context.check_hostname = False
         self.ssl_context.verify_mode = ssl.CERT_NONE
+
+    async def _publish(self, data: dict):
+        action = data.get("action")
+        if action:
+            await self.event_bus.publish(action, data)
 
     async def connect(self, host, port, username, password, mode="login", secret=""):
         self.host = host
@@ -143,24 +147,23 @@ class MessengerNetwork:
                 if action == "get_chats":
                     res = await client.get(f"{self.api_url}/chats/", headers=headers)
                     if res.status_code == 200:
-                        await self.on_message_received({"action": "chat_list", "chats": res.json().get("chats")})
-
+                        await self._publish({"action": "chat_list", "chats": res.json().get("chats")})
 
                 elif action == "get_history":
                     chat_id = data.get("chat_id")
                     limit = data.get("limit", 20)
-                    offset = data.get("offset", 0)  # <--- Получаем сдвиг от интерфейса
+                    offset = data.get("offset", 0)
                     res = await client.get(f"{self.api_url}/messages/{chat_id}?limit={limit}&offset={offset}",
                                            headers=headers)
                     if res.status_code == 200:
-                        await self.on_message_received({"action": "history", "offset": offset, **res.json()})
+                        await self._publish({"action": "history", "offset": offset, **res.json()})
 
                 elif action == "search_messages":
                     chat_id = data.get("chat_id")
                     query = data.get("query")
                     res = await client.get(f"{self.api_url}/messages/{chat_id}/search?query={query}", headers=headers)
                     if res.status_code == 200:
-                        await self.on_message_received({
+                        await self._publish({
                             "action": "search_results",
                             "chat_id": chat_id,
                             "messages": res.json().get("messages", [])
@@ -170,7 +173,7 @@ class MessengerNetwork:
                     res = await client.post(f"{self.api_url}/chats/dialog",
                                             json={"target_username": data.get("target")}, headers=headers)
                     if res.status_code == 200:
-                        await self.on_message_received({"action": "dialog_created", **res.json()})
+                        await self._publish({"action": "dialog_created", **res.json()})
 
                 elif action == "create_secret_chat":
                     res = await client.post(
@@ -184,7 +187,7 @@ class MessengerNetwork:
                     )
                     if res.status_code == 200:
                         resp_data = res.json()
-                        await self.on_message_received({
+                        await self._publish({
                             "action": "dialog_created",
                             "chat_id": resp_data.get("chat_id"),
                             "target": resp_data.get("target"),
@@ -228,13 +231,23 @@ class MessengerNetwork:
                 elif action == "get_chat_members":
                     res = await client.get(f"{self.api_url}/chats/{data.get('chat_id')}/members", headers=headers)
                     if res.status_code == 200:
-                        await self.on_message_received({"action": "chat_members_data", **res.json()})
+                        await self._publish({"action": "chat_members_data", **res.json()})
 
                 elif action == "send_file":
-                    with open(data.get("filepath"), "rb") as f:
+                    filepath = data.get("filepath")
+                    with open(filepath, "rb") as f:
                         files = {"file": (data.get("filename"), f)}
-                        await client.post(f"{self.api_url}/messages/{data.get('chat_id')}/files", files=files,
+                        res = await client.post(f"{self.api_url}/messages/{data.get('chat_id')}/files", files=files,
                                           headers=headers)
+                        if res.status_code == 200:
+                            res_json = res.json()
+                            msg_id = res_json.get("msg_id")
+                            if msg_id:
+                                await self._publish({
+                                    "action": "associate_local_path",
+                                    "filepath": filepath,
+                                    "msg_id": msg_id
+                                })
                 elif action == "req_file":
                     save_path = data.get("save_path")
                     async with client.stream("GET", f"{self.api_url}/messages/files/{data.get('msg_id')}",
@@ -243,7 +256,7 @@ class MessengerNetwork:
                             with open(save_path, "wb") as f:
                                 async for chunk in res.aiter_bytes():
                                     f.write(chunk)
-                            await self.on_message_received({
+                            await self._publish({
                                 "action": "file_saved",
                                 "filepath": save_path,
                                 "msg_id": data.get("msg_id")
@@ -253,18 +266,18 @@ class MessengerNetwork:
                     res = await client.post(f"{self.api_url}/chats/group", json={"name": data.get("name")},
                                             headers=headers)
                     if res.status_code == 200:
-                        await self.on_message_received({"action": "group_created", **res.json()})
+                        await self._publish({"action": "group_created", **res.json()})
 
                 elif action == "add_member":
                     res = await client.post(f"{self.api_url}/chats/{data.get('chat_id')}/members",
                                             json={"username": data.get("username")}, headers=headers)
                     if res.status_code == 200:
-                        await self.on_message_received({"action": "member_added"})
+                        await self._publish({"action": "member_added"})
 
             except Exception as e:
                 logger.error(f"Network REST Error ({action}): {e}")
                 if action == "get_history":
-                    await self.on_message_received({
+                    await self._publish({
                         "action": "history_error",
                         "chat_id": data.get("chat_id"),
                         "offset": data.get("offset", 0)
@@ -273,17 +286,16 @@ class MessengerNetwork:
     async def listen(self):
         """Бесконечное прослушивание входящих сообщений по WebSocket"""
         try:
-            # --- ИСПРАВЛЕНО: Умная подстановка SSL ---
             ssl_ctx = self.ssl_context if self.ws_url.startswith("wss://") else None
 
             async with websockets.connect(f"{self.ws_url}?token={self.token}", ssl=ssl_ctx) as ws:
                 self.ws = ws
                 while True:
                     message = await ws.recv()
-                    await self.on_message_received(json.loads(message))
+                    await self._publish(json.loads(message))
         except Exception as e:
             logger.error("ОБРЫВ СВЯЗИ (WebSocket)", exc_info=True)
-            await self.on_disconnected()
+            await self.event_bus.publish("disconnect")
 
     async def disconnect(self):
         if self.ws:
