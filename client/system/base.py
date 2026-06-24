@@ -16,3 +16,26 @@ class SystemAdapter:
     def setup_tray(self):
         """Инициализация трея (если поддерживается ОС)"""
         pass
+
+    def restore_window(self):
+        """Восстановление видимости окна и вывод его на передний план"""
+        async def restore_task():
+            try:
+                self.set_tray_badge(False)
+            except Exception:
+                pass
+            
+            self.page.window.visible = True
+            self.page.window.minimized = False
+            self.page.window.focused = True
+
+            # Трюк с always_on_top для вывода окна поверх других
+            was_pinned = getattr(self.page.window, "always_on_top", False)
+            self.page.window.always_on_top = True
+            self.page.update()
+
+            if not was_pinned:
+                self.page.window.always_on_top = False
+                self.page.update()
+
+        self.page.run_task(restore_task)

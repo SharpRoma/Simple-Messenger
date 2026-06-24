@@ -36,27 +36,7 @@ class WindowsAdapter(SystemAdapter):
         self.tray_icon.run()
 
     def _restore_window(self, icon, item_):
-        # Трей работает в фоне. Передаем задачу разворачивания в движок Flet!
-        async def restore_task():
-            self.set_tray_badge(False)
-
-            # Возвращаем окну видимость и убираем статус свернутого
-            self.page.window.visible = True
-            self.page.window.minimized = False
-            self.page.window.focused = True
-
-            # ТРЮК ДЛЯ WINDOWS: Дергаем окно "поверх всех", чтобы ОС точно его показала
-            was_pinned = getattr(self.page.window, "always_on_top", False)
-            self.page.window.always_on_top = True
-            self.page.update()
-
-            # И сразу возвращаем статус-кво (если пользователь не закреплял его заколкой)
-            if not was_pinned:
-                self.page.window.always_on_top = False
-                self.page.update()
-
-        # Заставляем страницу Flet выполнить это в своем потоке
-        self.page.run_task(restore_task)
+        self.restore_window()
 
     def _quit_app(self, icon, item_):
         # 1. Убираем иконку из трея

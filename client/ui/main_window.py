@@ -31,8 +31,8 @@ class MainWindow:
         self.settings_manager = settings_manager
         self.settings = self.settings_manager.load_settings()
 
-        self.db = ClientDatabase(self.settings_manager.APP_DIR / "client_cache.sqlite")
-        self.crypto_mgr = CryptoManager(self.settings_manager.APP_DIR)
+        self.db = None
+        self.crypto_mgr = None
 
         self.current_username = ""
         self.active_chat_id = None
@@ -100,6 +100,8 @@ class MainWindow:
         self.is_logged_in = False
 
         self.current_username = ""
+        self.db = None
+        self.crypto_mgr = None
         self.active_chat_id = None
         self.chats_info = {}
         self.pending_downloads = {}
@@ -182,6 +184,8 @@ class MainWindow:
                 # Если сервер недоступен, но у нас включен автологин, заходим в оффлайн-режиме
                 if response.get("msg") == "Сервер недоступен" and auto_login:
                     self.current_username = username
+                    self.db = ClientDatabase(self.settings_manager.APP_DIR / f"client_cache_{username}.sqlite")
+                    self.crypto_mgr = CryptoManager(self.settings_manager.APP_DIR / f"keys_{username}")
                     self.is_logged_in = True
                     self.page.title = f"Simple Messenger ({self.current_username}) [Offline]"
                     self.show_chat_screen()
@@ -192,6 +196,8 @@ class MainWindow:
                 return
 
             self.current_username = username
+            self.db = ClientDatabase(self.settings_manager.APP_DIR / f"client_cache_{username}.sqlite")
+            self.crypto_mgr = CryptoManager(self.settings_manager.APP_DIR / f"keys_{username}")
             self.settings.update({
                 "host": host,
                 "port": port,

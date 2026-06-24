@@ -20,6 +20,39 @@ def main(page: ft.Page):
     os_adapter = get_system_adapter(page, config)
     os_adapter.setup_tray()
 
+    # Проверка на запуск единственной копии (Single Instance Lock)
+    import socket
+    import sys
+    import threading
+
+    port = 48951
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(('127.0.0.1', port))
+        s.sendall(b"restore")
+        s.close()
+        logger.info("Другая копия приложения уже запущена. Отправлен сигнал развернуть окно. Завершение работы.")
+        sys.exit(0)
+    except socket.error:
+        pass
+
+    def listen_restore_signals():
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            server.bind(('127.0.0.1', port))
+            server.listen(1)
+            while True:
+                conn, addr = server.accept()
+                data = conn.recv(1024)
+                if data == b"restore":
+                    os_adapter.restore_window()
+                conn.close()
+        except Exception as ex:
+            logger.error(f"Ошибка прослушивания сигналов восстановления: {ex}")
+
+    threading.Thread(target=listen_restore_signals, daemon=True).start()
+
     # 3. Настройка окна Flet
     # 3. Настройка окна Flet
     page.title = "Simple Messenger"

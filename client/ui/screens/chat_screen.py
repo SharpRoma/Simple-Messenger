@@ -88,10 +88,12 @@ class ChatScreen(ft.Container):
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=0
         )
-        title_container = ft.Container(
+        self.title_container = ft.Container(
             content=title_col,
             expand=True,
-            margin=ft.Margin(left=0, top=4, right=0, bottom=0)
+            margin=ft.Margin(left=0, top=4, right=0, bottom=0),
+            on_click=None,
+            tooltip=None
         )
 
         self.pin_btn = ft.IconButton(icon=ft.Icons.PUSH_PIN, icon_color=ft.Colors.WHITE54, tooltip="Поверх всех",
@@ -118,9 +120,9 @@ class ChatScreen(ft.Container):
                 icon=ft.Icons.MENU,
                 on_click=lambda e: self.on_open_drawer()
             ),
-            title_container,
+            self.title_container,
             ft.Row(
-                [self.info_btn, self.search_btn, self.pin_btn],
+                [self.search_btn, self.pin_btn],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER
             )
         ],
@@ -206,10 +208,13 @@ class ChatScreen(ft.Container):
         self.chat_subtitle.color = ft.Colors.GREEN if is_online else ft.Colors.GREY_400
 
         self.info_btn.visible = show_info
+        self.title_container.on_click = (lambda e: self.on_open_profile()) if show_info else None
+        self.title_container.tooltip = "Информация о чате" if show_info else None
 
         try:
             self.chat_title.update()
             self.chat_subtitle.update()
+            self.title_container.update()
             self.info_btn.update()
         except Exception:
             pass
