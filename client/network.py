@@ -243,7 +243,11 @@ class MessengerNetwork:
                             with open(save_path, "wb") as f:
                                 async for chunk in res.aiter_bytes():
                                     f.write(chunk)
-                            await self.on_message_received({"action": "file_saved", "filepath": save_path})
+                            await self.on_message_received({
+                                "action": "file_saved",
+                                "filepath": save_path,
+                                "msg_id": data.get("msg_id")
+                            })
 
                 elif action == "create_group":
                     res = await client.post(f"{self.api_url}/chats/group", json={"name": data.get("name")},

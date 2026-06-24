@@ -162,7 +162,6 @@ class MainWindow:
         if cached_chats:
             for c in cached_chats:
                 self.chats_info[c['id']] = c
-            self.update_drawer()
 
             # Если активный чат еще не выбран, выберем первый/избранный из кэша
             chat_to_select = self.active_chat_id
@@ -171,6 +170,8 @@ class MainWindow:
                 chat_to_select = saved_chat['id'] if saved_chat else cached_chats[0]['id']
 
             self.handle_select_chat(chat_to_select)
+
+        self.update_drawer()
 
     def handle_login(self, host, port, username, password, auto_login):
         async def login_task():
@@ -518,6 +519,11 @@ class MainWindow:
                 if not files: return
                 f = files[0]
 
+                import os
+                if f.path and os.path.isdir(f.path):
+                    self.show_snackbar("Ошибка: Выбранный объект является папкой!")
+                    return
+
                 if self.editing_msg_id is not None:
                     self.editing_new_file = f.path
                     self.editing_new_filename = f.name
@@ -616,6 +622,7 @@ class MainWindow:
                     timestamp=msg['timestamp'],
                     msg_id=msg.get('id'),
                     file_name=msg.get('file_name'),
+                    local_path=msg.get('local_path'),
                     updated_at=msg.get('updated_at'),
                     is_read=msg.get('is_read', False)
                 )
@@ -716,12 +723,22 @@ class MainWindow:
             is_hidden = getattr(self.page.window, "minimized", False) or not getattr(self.page.window, "visible", True)
 
             if is_active_chat:
+                local_path = None
+                m_id = msg.get('id')
+                if m_id:
+                    with self.db._get_conn() as conn:
+                        cursor = conn.execute("SELECT local_path FROM messages WHERE id = ?", (m_id,))
+                        row = cursor.fetchone()
+                        if row:
+                            local_path = row['local_path']
+
                 self.chat_screen.add_message(
                     sender=msg['sender'],
                     text=msg.get('text', ''),
                     timestamp=msg['timestamp'],
                     msg_id=msg.get('id'),
                     file_name=msg.get('file_name'),
+                    local_path=local_path,
                     updated_at=msg.get('updated_at'),
                     is_read=msg.get('is_read', False)
                 )
@@ -778,12 +795,22 @@ class MainWindow:
                 self.show_snackbar(f"Найдено: {len(messages)} сообщений")
                 
                 for msg in messages:
+                    local_path = None
+                    m_id = msg.get('id')
+                    if m_id:
+                        with self.db._get_conn() as conn:
+                            cursor = conn.execute("SELECT local_path FROM messages WHERE id = ?", (m_id,))
+                            row = cursor.fetchone()
+                            if row:
+                                local_path = row['local_path']
+
                     self.chat_screen.add_message(
                         sender=msg['sender'],
                         text=msg.get('text', ''),
                         timestamp=msg['timestamp'],
                         msg_id=msg.get('id'),
                         file_name=msg.get('file_name'),
+                        local_path=local_path,
                         updated_at=msg.get('updated_at'),
                         is_read=msg.get('is_read', False)
                     )
@@ -855,20 +882,26 @@ class MainWindow:
             if len(messages) < 20:
                 self.has_more_history = False
 
+            # Пытаемся загрузить данные из локального кэша, чтобы получить local_path
+            enriched_msgs = []
+            if chat_id:
+                enriched_msgs = self.db.get_messages(chat_id, limit=20, offset=offset)
+
             if offset == 0:
                 # Первая страница
                 self.chat_screen.clear_messages()
                 self.update_chat_header()
-                for msg in messages:
+                for msg in enriched_msgs:
                     self.chat_screen.add_message(
                         sender=msg['sender'], text=msg.get('text', ''),
                         timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name'),
+                        local_path=msg.get('local_path'),
                         updated_at=msg.get('updated_at'), is_read=msg.get('is_read', False)
                     )
             else:
                 # Подгрузка СТАРЫХ сообщений
-                if messages:
-                    self.chat_screen.prepend_messages(messages)
+                if enriched_msgs:
+                    self.chat_screen.prepend_messages(enriched_msgs)
             self.is_loading_history = False  # Снимаем блокировку, можно крутить дальше
 
         elif action == "history_error":
@@ -887,6 +920,7 @@ class MainWindow:
                             self.chat_screen.add_message(
                                 sender=msg['sender'], text=msg.get('text', ''),
                                 timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name'),
+                                local_path=msg.get('local_path'),
                                 updated_at=msg.get('updated_at'), is_read=msg.get('is_read', False)
                             )
                     else:
@@ -929,32 +963,82 @@ class MainWindow:
             ctype = chat_data.get("type", "group")
             members = data.get("members", [])
 
-            # Извлекаем файлы из локальной БД
+            # Извлекаем файлы и ссылки из локальной БД
             files = self.db.get_chat_files(self.active_chat_id)
+            links = self.db.get_chat_links(self.active_chat_id)
 
             def handle_open_media_from_info(msg_id, is_vid, name):
                 media_url = self.get_media_url(msg_id)
                 self.show_media_modal(media_url, is_vid, name)
 
-            dialog = ChatProfileDialog(
+            self.profile_dialog = ChatProfileDialog(
                 self.page,
                 cname,
                 ctype,
                 members,
                 files,
+                links,
                 self.show_add_member_modal,
                 self.handle_download_file,
                 handle_open_media_from_info
             )
-            dialog.show()
+            self.profile_dialog.show()
 
         elif action == "file_saved":
             filepath = data.get("filepath")
+            msg_id = data.get("msg_id")
             if filepath:
-                # Окошко внутри мессенджера
-                self.show_snackbar("Файл успешно скачан!")
+                if msg_id:
+                    self.db.update_message_local_path(msg_id, filepath)
+                    # Update local path in the profile dialog if open
+                    if hasattr(self, 'profile_dialog') and self.profile_dialog and getattr(self.profile_dialog, 'dialog', None) and self.profile_dialog.dialog.open:
+                        self.profile_dialog.update_file_local_path(msg_id, filepath)
+                    # Smoothly update message in UI if it's currently displayed
+                    if hasattr(self, 'chat_screen') and self.chat_screen:
+                        for ctrl in self.chat_screen.chat_history.controls:
+                            if getattr(ctrl, "msg_id", None) == msg_id:
+                                sender = getattr(ctrl, "sender", "")
+                                text = getattr(ctrl, "text", "")
+                                timestamp = getattr(ctrl, "timestamp", 0)
+                                file_name = getattr(ctrl, "file_name", None)
+                                updated_at = getattr(ctrl, "updated_at", None)
+                                is_read = getattr(ctrl, "is_read", False)
+                                self.chat_screen.update_message(
+                                    msg_id, sender, text, timestamp, file_name, updated_at, is_read, filepath
+                                )
+                                break
+
+                def on_show_in_finder(e, path=filepath):
+                    import subprocess
+                    import platform
+                    try:
+                        system = platform.system()
+                        if system == "Darwin":
+                            subprocess.run(["open", "-R", path])
+                        elif system == "Windows":
+                            subprocess.run(["explorer", "/select,", os.path.normpath(path)])
+                        else:
+                            subprocess.run(["xdg-open", os.path.dirname(path)])
+                    except Exception as err:
+                        logger.error(f"Failed to open in finder: {err}")
+
+                import platform
+                action_label = "Показать в Finder" if platform.system() == "Darwin" else "Показать в папке"
+
                 # Системное уведомление macOS/Windows
                 self.os.notify("Файл скачан!", f"Сохранен в: {filepath}")
+
+                snack = ft.SnackBar(
+                    content=ft.Text("Файл успешно скачан!"),
+                    action=ft.SnackBarAction(
+                        label=action_label,
+                        on_click=on_show_in_finder
+                    ),
+                    duration=5000
+                )
+                self.page.overlay.append(snack)
+                snack.open = True
+                self.page.update()
 
     def update_drawer(self):
         # Функция для кнопки закрытия
@@ -983,6 +1067,17 @@ class MainWindow:
         def make_select(cid):
             return lambda e: self.handle_select_chat(cid)
 
+        # Добавляем избранное на самый верх
+        if saved_id:
+            controls.append(
+                ft.ListTile(
+                    leading=ft.Icon(ft.Icons.BOOKMARK, color=ft.Colors.BLUE_400),
+                    title=ft.Text("Избранное", weight="bold"),
+                    on_click=make_select(saved_id)
+                )
+            )
+            controls.append(ft.Divider())
+
         # --- 1. Групповые чаты ---
         has_groups = False
         for cid, chat in self.chats_info.items():
@@ -994,13 +1089,6 @@ class MainWindow:
                     on_click=make_select(cid)))
         if not has_groups:
             controls.append(ft.Container(padding=15, content=ft.Text("Нет групп", color=ft.Colors.GREY_500)))
-
-        # Добавляем избранное
-        if saved_id:
-            controls.append(
-                ft.ListTile(leading=ft.Icon(ft.Icons.BOOKMARK),
-                title=ft.Text("Избранное"),
-                on_click=make_select(saved_id)))
         controls.append(ft.Divider())
 
         # --- 2. Личные диалоги ---
@@ -1071,6 +1159,7 @@ class MainWindow:
                 self.chat_screen.add_message(
                     sender=msg['sender'], text=msg.get('text', ''),
                     timestamp=msg['timestamp'], msg_id=msg.get('id'), file_name=msg.get('file_name'),
+                    local_path=msg.get('local_path'),
                     updated_at=msg.get('updated_at'), is_read=msg.get('is_read', False)
                 )
 

@@ -19,8 +19,8 @@ class MediaDialog(BaseDialog):
             content = ft.InteractiveViewer(
                 min_scale=0.5,
                 max_scale=5.0,  # Можно приблизить в 5 раз
-                boundary_margin=ft.margin.all(0),
-                content=ft.Image(src=media_url, fit=ft.ImageFit.CONTAIN)
+                boundary_margin=ft.Margin.all(0),
+                content=ft.Image(src=media_url, fit=ft.BoxFit.CONTAIN)
             )
 
         self.dialog = ft.AlertDialog(

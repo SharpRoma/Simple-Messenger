@@ -32,12 +32,17 @@ class ClientDatabase:
                     sender TEXT NOT NULL,
                     text TEXT,
                     file_name TEXT,
+                    local_path TEXT,
                     timestamp INTEGER NOT NULL,
                     updated_at INTEGER,
                     is_read INTEGER DEFAULT 0,
                     FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE
                 )
             """)
+            try:
+                conn.execute("ALTER TABLE messages ADD COLUMN local_path TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             conn.commit()
 
     def save_chats(self, chats: list[dict]):
@@ -63,9 +68,17 @@ class ClientDatabase:
         with self._get_conn() as conn:
             for msg in messages:
                 conn.execute("""
-                    INSERT OR REPLACE INTO messages 
+                    INSERT INTO messages 
                     (id, chat_id, sender, text, file_name, timestamp, updated_at, is_read) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        chat_id = excluded.chat_id,
+                        sender = excluded.sender,
+                        text = excluded.text,
+                        file_name = excluded.file_name,
+                        timestamp = excluded.timestamp,
+                        updated_at = excluded.updated_at,
+                        is_read = excluded.is_read
                 """, (
                     msg["id"],
                     chat_id,
@@ -81,7 +94,7 @@ class ClientDatabase:
     def get_messages(self, chat_id: int, limit: int = 50, offset: int = 0) -> list[dict]:
         with self._get_conn() as conn:
             cursor = conn.execute("""
-                SELECT id, sender, text, file_name, timestamp, updated_at, is_read 
+                SELECT id, sender, text, file_name, local_path, timestamp, updated_at, is_read 
                 FROM messages 
                 WHERE chat_id = ? 
                 ORDER BY timestamp DESC 
@@ -98,13 +111,29 @@ class ClientDatabase:
     def get_chat_files(self, chat_id: int) -> list[dict]:
         with self._get_conn() as conn:
             cursor = conn.execute("""
-                SELECT id, sender, text, file_name, timestamp, updated_at, is_read 
+                SELECT id, sender, text, file_name, local_path, timestamp, updated_at, is_read 
                 FROM messages 
                 WHERE chat_id = ? AND file_name IS NOT NULL
                 ORDER BY timestamp DESC
             """, (chat_id,))
             rows = cursor.fetchall()
             return [dict(r) for r in rows]
+
+    def get_chat_links(self, chat_id: int) -> list[dict]:
+        with self._get_conn() as conn:
+            cursor = conn.execute("""
+                SELECT id, sender, text, timestamp 
+                FROM messages 
+                WHERE chat_id = ? AND (text LIKE '%http://%' OR text LIKE '%https://%')
+                ORDER BY timestamp DESC
+            """, (chat_id,))
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    def update_message_local_path(self, msg_id: int, local_path: str):
+        with self._get_conn() as conn:
+            conn.execute("UPDATE messages SET local_path = ? WHERE id = ?", (local_path, msg_id))
+            conn.commit()
 
     def delete_message(self, msg_id: int):
         with self._get_conn() as conn:
@@ -132,7 +161,7 @@ class ClientDatabase:
     def search_messages(self, chat_id: int, query: str) -> list[dict]:
         with self._get_conn() as conn:
             cursor = conn.execute("""
-                SELECT id, sender, text, file_name, timestamp, updated_at, is_read 
+                SELECT id, sender, text, file_name, local_path, timestamp, updated_at, is_read 
                 FROM messages 
                 WHERE chat_id = ? AND (text LIKE ? OR file_name LIKE ?)
                 ORDER BY timestamp DESC

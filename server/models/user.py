@@ -10,3 +10,4 @@ class User(Base):
     password: Mapped[str] = mapped_column(String, nullable=False)
     last_seen: Mapped[int] = mapped_column(Integer, nullable=True, default=0)
     public_key: Mapped[str] = mapped_column(String, nullable=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)

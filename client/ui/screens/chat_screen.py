@@ -1,5 +1,23 @@
 import flet as ft
 from datetime import datetime
+import os
+import platform
+import subprocess
+import logging
+
+logger = logging.getLogger("messenger.chat_screen")
+
+def open_file_in_default_app(filepath: str):
+    try:
+        system = platform.system()
+        if system == "Darwin":
+            subprocess.run(["open", filepath])
+        elif system == "Windows":
+            os.startfile(filepath)
+        else:
+            subprocess.run(["xdg-open", filepath])
+    except Exception as err:
+        logger.error(f"Failed to open file: {err}")
 
 
 class ChatScreen(ft.Container):
@@ -61,15 +79,19 @@ class ChatScreen(ft.Container):
             on_change=lambda e: self.on_typing()
         )
 
-        self.chat_title = ft.Text("Simple Messenger", size=18, weight="bold")
-        self.chat_subtitle = ft.Text("", size=12, color=ft.Colors.GREY_400)  # Подзаголовок со статусом!
+        self.chat_title = ft.Text("Simple Messenger", size=16, weight="bold")
+        self.chat_subtitle = ft.Text(" ", size=8, color=ft.Colors.GREY_400)  # Подзаголовок со статусом! (по умолчанию пробел для фиксации высоты)
 
         title_col = ft.Column(
             [self.chat_title, self.chat_subtitle],
             alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=0,
-            expand=True
+            spacing=0
+        )
+        title_container = ft.Container(
+            content=title_col,
+            expand=True,
+            margin=ft.Margin(left=0, top=4, right=0, bottom=0)
         )
 
         self.pin_btn = ft.IconButton(icon=ft.Icons.PUSH_PIN, icon_color=ft.Colors.WHITE54, tooltip="Поверх всех",
@@ -96,10 +118,14 @@ class ChatScreen(ft.Container):
                 icon=ft.Icons.MENU,
                 on_click=lambda e: self.on_open_drawer()
             ),
-            title_col,
-            ft.Row([self.info_btn, self.search_btn, self.pin_btn])
+            title_container,
+            ft.Row(
+                [self.info_btn, self.search_btn, self.pin_btn],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER
+            )
         ],
-        alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         input_row = ft.Row([
             ft.IconButton(
@@ -176,7 +202,7 @@ class ChatScreen(ft.Container):
 
     def set_chat_title(self, title: str, subtitle: str = "", show_info: bool = False, is_online: bool = False):
         self.chat_title.value = title
-        self.chat_subtitle.value = subtitle
+        self.chat_subtitle.value = subtitle if subtitle else " "
         self.chat_subtitle.color = ft.Colors.GREEN if is_online else ft.Colors.GREY_400
 
         self.info_btn.visible = show_info
@@ -192,6 +218,11 @@ class ChatScreen(ft.Container):
     def _submit_message(self, e):
         text = self.msg_input.value.strip()
         if text or self.edit_panel.visible:  # Разрешаем отправку в режиме редактирования даже пустого текста (если останется файл)
+            self.msg_input.value = ""
+            try:
+                self.msg_input.update()
+            except Exception:
+                pass
             self.on_send_message(text)
 
     def _toggle_pin(self, e):
@@ -283,11 +314,12 @@ class ChatScreen(ft.Container):
                 except Exception: pass
                 break
 
-    def update_message(self, msg_id: int, sender: str, text: str, timestamp: float, file_name: str = None, updated_at: float = None, is_read: bool = False):
+    def update_message(self, msg_id: int, sender: str, text: str, timestamp: float, file_name: str = None, updated_at: float = None, is_read: bool = False, local_path: str = None):
         target_key = f"msg_{msg_id}"
         for i, ctrl in enumerate(self.chat_history.controls):
             if getattr(ctrl, "key", None) == target_key:
-                new_row = self._create_message_row(sender, text, timestamp, msg_id, file_name, updated_at, is_read)
+                l_path = local_path or getattr(ctrl, "local_path", None)
+                new_row = self._create_message_row(sender, text, timestamp, msg_id, file_name, l_path, updated_at, is_read)
                 self.chat_history.controls[i] = new_row
                 try:
                     self.chat_history.update()
@@ -304,10 +336,11 @@ class ChatScreen(ft.Container):
                 timestamp = getattr(ctrl, "timestamp", 0)
                 msg_id = getattr(ctrl, "msg_id", None)
                 file_name = getattr(ctrl, "file_name", None)
+                local_path = getattr(ctrl, "local_path", None)
                 updated_at = getattr(ctrl, "updated_at", None)
                 
                 new_row = self._create_message_row(
-                    sender, text, timestamp, msg_id, file_name, updated_at, is_read=True
+                    sender, text, timestamp, msg_id, file_name, local_path, updated_at, is_read=True
                 )
                 self.chat_history.controls[i] = new_row
                 changed = True
@@ -324,7 +357,7 @@ class ChatScreen(ft.Container):
         except Exception:
             pass
 
-    def _create_message_row(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, updated_at: float = None, is_read: bool = False):
+    def _create_message_row(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, local_path: str = None, updated_at: float = None, is_read: bool = False):
         ts = datetime.fromtimestamp(timestamp).strftime('%H:%M')
         is_own = (sender == self.current_username)
         content = None
@@ -336,12 +369,17 @@ class ChatScreen(ft.Container):
         # Маркер измененного сообщения
         edited_label = " (изменено)" if updated_at else ""
 
-        # Галочки прочтения
-        tick_str = ""
-        tick_color = ft.Colors.GREY_500
+        # Настройка цветов пузырей в стиле мессенджеров
         if is_own:
-            tick_str = " ✓✓" if is_read else " ✓"
-            tick_color = ft.Colors.BLUE_300 if is_read else ft.Colors.GREY_500
+            bubble_color = "#2b5278"  # Premium dark blue-gray
+            text_color = ft.Colors.WHITE
+            border_radius = ft.BorderRadius.only(top_left=12, top_right=12, bottom_left=12, bottom_right=2)
+            main_alignment = ft.MainAxisAlignment.END
+        else:
+            bubble_color = "#262626"  # Dark gray
+            text_color = ft.Colors.GREY_100
+            border_radius = ft.BorderRadius.only(top_left=12, top_right=12, bottom_left=2, bottom_right=12)
+            main_alignment = ft.MainAxisAlignment.START
 
         if file_name:
             ext = file_name.lower().split('.')[-1]
@@ -350,7 +388,7 @@ class ChatScreen(ft.Container):
             if ext in img_exts or ext in vid_exts:
                 is_video = ext in vid_exts
                 media_url = self.on_get_media_url(msg_id)
-                thumb = ft.Image(src=media_url, width=200, height=200, fit=ft.ImageFit.COVER, border_radius=10)
+                thumb = ft.Image(src=media_url, width=200, height=200, fit=ft.BoxFit.COVER, border_radius=10)
 
                 if is_video:
                     thumb = ft.Stack([
@@ -359,21 +397,11 @@ class ChatScreen(ft.Container):
                                      alignment=ft.Alignment.CENTER, width=200, height=200)
                     ])
 
-                header_text = ft.Text(
-                    spans=[
-                        ft.TextSpan(f"[{ts}] {sender}:{edited_label}", style=ft.TextStyle(color=ft.Colors.GREY_400, size=12)),
-                        ft.TextSpan(tick_str, style=ft.TextStyle(color=tick_color, size=12, weight="bold"))
-                    ]
-                )
-
                 content = ft.Container(
-                    content=ft.Column([
-                        header_text,
-                        thumb
-                    ], spacing=5),
+                    content=thumb,
                     on_click=lambda e, m_url=media_url, is_v=is_video, fname=file_name: self.on_open_media(m_url, is_v, fname),
                     tooltip="Кликните для просмотра",
-                    cursor=ft.MouseCursor.CLICK
+                    border_radius=10
                 )
 
             # 2. Аудио-файл
@@ -406,73 +434,75 @@ class ChatScreen(ft.Container):
 
                 play_btn.on_click = play_pause_click
 
-                header_text = ft.Text(
-                    spans=[
-                        ft.TextSpan(f"[{ts}] {sender}:{edited_label}", style=ft.TextStyle(color=ft.Colors.GREY_400, size=12)),
-                        ft.TextSpan(tick_str, style=ft.TextStyle(color=tick_color, size=12, weight="bold"))
-                    ]
-                )
-
-                content = ft.Container(
-                    content=ft.Row([
-                        play_btn,
-                        ft.Column([
-                            header_text,
-                            ft.Text(f"🎵 {file_name}", color=ft.Colors.BLUE_200, italic=True)
-                        ], spacing=0)
-                    ]),
-                    padding=5,
-                    border_radius=5
-                )
+                content = ft.Row([
+                    play_btn,
+                    ft.Text(f"🎵 {file_name}", color=ft.Colors.BLUE_200, italic=True, size=13, expand=True)
+                ], spacing=10, tight=True)
 
             # 3. Любой другой файл (Документ)
             else:
-                if is_own:
-                    content = ft.Text(
-                        spans=[
-                            ft.TextSpan(f"[{ts}] {sender}: 📎 Файл: {file_name}{edited_label}", style=ft.TextStyle(color=ft.Colors.BLUE_200, italic=True)),
-                            ft.TextSpan(tick_str, style=ft.TextStyle(color=tick_color, weight="bold"))
-                        ],
-                        expand=True
-                    )
-                else:
-                    content = ft.Text(f"[{ts}] {sender}: 📎 Файл: {file_name}{edited_label}", color=ft.Colors.BLUE_200, italic=True, expand=True)
+                import os
+                is_downloaded = False
+                if local_path:
+                    try:
+                        if os.path.exists(local_path):
+                            is_downloaded = True
+                    except Exception:
+                        pass
+
+                icon_color = ft.Colors.BLUE_400 if is_downloaded else ft.Colors.GREY_400
+                status_text = "Открыть файл" if is_downloaded else "Нажмите, чтобы скачать"
+
+                def on_doc_click(e, is_dl=is_downloaded, path=local_path, mid=msg_id, fname=file_name):
+                    if is_dl and path:
+                        open_file_in_default_app(path)
+                    else:
+                        self.on_download_file(mid, fname)
+
+                content = ft.Container(
+                    content=ft.Row([
+                        ft.Container(
+                            content=ft.Icon(ft.Icons.INSERT_DRIVE_FILE, size=24, color=ft.Colors.WHITE),
+                            bgcolor=ft.Colors.BLUE_900 if is_downloaded else ft.Colors.GREY_800,
+                            padding=10,
+                            border_radius=8
+                        ),
+                        ft.Column([
+                            ft.Text(file_name, color=text_color, weight="bold", size=13, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                            ft.Text(status_text, color=ft.Colors.GREY_400, size=11)
+                        ], spacing=2, tight=True, expand=True)
+                    ], spacing=10, tight=True),
+                    on_click=on_doc_click,
+                    padding=5,
+                    border_radius=8,
+                    tooltip=status_text
+                )
         else:
             # 4. Текстовое сообщение
-            if is_own:
-                content = ft.Text(
-                    spans=[
-                        ft.TextSpan(f"[{ts}] {sender}: {text}{edited_label}", style=ft.TextStyle(font_family="Consolas")),
-                        ft.TextSpan(tick_str, style=ft.TextStyle(color=tick_color, weight="bold"))
-                    ],
-                    expand=True
-                )
-            else:
-                msg_text = f"[{ts}] {sender}: {text}{edited_label}"
-                content = ft.Text(msg_text, font_family="Consolas", selectable=True, expand=True)
+            content = ft.Text(text, color=text_color, size=13, selectable=True)
 
         # Контекстное меню "Три точки" (PopupMenuButton)
         menu_items = []
         if not file_name:
             menu_items.append(
-                ft.PopupMenuItem(icon=ft.Icons.COPY, text="Копировать", on_click=lambda e, t=text: self.on_copy_message(t))
+                ft.PopupMenuItem(icon=ft.Icons.COPY, content=ft.Text("Копировать"), on_click=lambda e, t=text: self.on_copy_message(t))
             )
         else:
             menu_items.append(
-                ft.PopupMenuItem(icon=ft.Icons.DOWNLOAD, text="Скачать", on_click=lambda e, m=msg_id, f=file_name: self.on_download_file(m, f))
+                ft.PopupMenuItem(icon=ft.Icons.DOWNLOAD, content=ft.Text("Скачать"), on_click=lambda e, m=msg_id, f=file_name: self.on_download_file(m, f))
             )
 
         if is_own and msg_id:
             menu_items.append(
-                ft.PopupMenuItem(icon=ft.Icons.EDIT, text="Редактировать", on_click=lambda e, m=msg_id, t=text, f=file_name: self.on_edit_message(m, t, f))
+                ft.PopupMenuItem(icon=ft.Icons.EDIT, content=ft.Text("Редактировать"), on_click=lambda e, m=msg_id, t=text, f=file_name: self.on_edit_message(m, t, f))
             )
             menu_items.append(
-                ft.PopupMenuItem(icon=ft.Icons.DELETE_OUTLINE, text="Удалить", on_click=lambda e, m=msg_id: self.on_delete_message(m))
+                ft.PopupMenuItem(icon=ft.Icons.DELETE_OUTLINE, content=ft.Text("Удалить"), on_click=lambda e, m=msg_id: self.on_delete_message(m))
             )
 
         if updated_at:
             edit_ts = datetime.fromtimestamp(updated_at).strftime('%H:%M')
-            menu_items.append(ft.PopupMenuItem(text=f"Изменено: {edit_ts}", disabled=True))
+            menu_items.append(ft.PopupMenuItem(content=ft.Text(f"Изменено: {edit_ts}"), disabled=True))
 
         actions_menu = ft.PopupMenuButton(
             icon=ft.Icons.MORE_VERT,
@@ -482,23 +512,118 @@ class ChatScreen(ft.Container):
             tooltip="Действия"
         )
 
+        show_finder_btn = None
+        if file_name and local_path:
+            import os
+            try:
+                if os.path.exists(local_path):
+                    import platform
+                    system = platform.system()
+                    if system == "Darwin":
+                        btn_label = "Показать в Finder"
+                    elif system == "Windows":
+                        btn_label = "Показать в проводнике"
+                    else:
+                        btn_label = "Показать в папке"
+
+                    def on_show_click(e, path=local_path):
+                        import subprocess
+                        import platform
+                        try:
+                            sys_name = platform.system()
+                            if sys_name == "Darwin":
+                                subprocess.run(["open", "-R", path])
+                            elif sys_name == "Windows":
+                                subprocess.run(["explorer", "/select,", os.path.normpath(path)])
+                            else:
+                                subprocess.run(["xdg-open", os.path.dirname(path)])
+                        except Exception as err:
+                            pass
+
+                    show_finder_btn = ft.TextButton(
+                        text=btn_label,
+                        icon=ft.Icons.FOLDER_OPEN,
+                        icon_color=ft.Colors.BLUE_300,
+                        style=ft.ButtonStyle(
+                            color=ft.Colors.BLUE_300,
+                            text_style=ft.TextStyle(size=11, weight="bold"),
+                        ),
+                        on_click=on_show_click
+                    )
+            except Exception:
+                pass
+
+        # Собираем элементы внутри пузыря (bubble)
+        bubble_items = []
+        if not is_own:
+            # Имя отправителя в групповых переписках
+            bubble_items.append(
+                ft.Text(sender, color=ft.Colors.BLUE_300, weight="bold", size=11)
+            )
+
+        bubble_items.append(content)
+
+        if show_finder_btn:
+            bubble_items.append(show_finder_btn)
+
+        # Галочки и время отправки
+        tick_str = ""
+        tick_color = ft.Colors.GREY_500
+        if is_own:
+            tick_str = " ✓✓" if is_read else " ✓"
+            tick_color = ft.Colors.BLUE_300 if is_read else ft.Colors.GREY_500
+
+        footer = ft.Row([
+            ft.Text(f"{ts}{edited_label}", color=ft.Colors.GREY_500, size=9),
+            ft.Text(tick_str, color=tick_color, size=9, weight="bold")
+        ], alignment=ft.MainAxisAlignment.END, spacing=3)
+
+        bubble_items.append(footer)
+
+        # Контейнер самого пузыря сообщения
+        bubble = ft.Container(
+            content=ft.Column(bubble_items, spacing=4, tight=True),
+            bgcolor=bubble_color,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+            border_radius=border_radius,
+            expand=True,
+        )
+
+        # Выравнивание строки: свои справа, чужие слева
+        if is_own:
+            row_controls = [actions_menu, bubble]
+        else:
+            row_controls = [bubble, actions_menu]
+
         row = ft.Row(
-            controls=[content, actions_menu],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            controls=row_controls,
+            alignment=main_alignment,
             vertical_alignment=ft.CrossAxisAlignment.START,
+        )
+
+        # Обертка контейнером для отступа от краев (чтобы не перекрывалось скроллбаром)
+        if is_own:
+            outer_padding = ft.Padding(left=50, top=2, right=15, bottom=2)
+        else:
+            outer_padding = ft.Padding(left=15, top=2, right=50, bottom=2)
+
+        container = ft.Container(
+            content=row,
+            padding=outer_padding,
             key=f"msg_{msg_id}" if msg_id else None
         )
-        row.msg_id = msg_id
-        row.sender = sender
-        row.text = text
-        row.timestamp = timestamp
-        row.file_name = file_name
-        row.updated_at = updated_at
-        row.is_read = is_read
-        return row
+        container.msg_id = msg_id
+        container.sender = sender
+        container.text = text
+        container.timestamp = timestamp
+        container.file_name = file_name
+        container.local_path = local_path
+        container.updated_at = updated_at
+        container.is_read = is_read
+        return container
 
-    def add_message(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, updated_at: float = None, is_read: bool = False):
-        row = self._create_message_row(sender, text, timestamp, msg_id, file_name, updated_at, is_read)
+    def add_message(self, sender: str, text: str, timestamp: float, msg_id: int = None, file_name: str = None, local_path: str = None, updated_at: float = None, is_read: bool = False):
+        row = self._create_message_row(sender, text, timestamp, msg_id, file_name, local_path, updated_at, is_read)
         self.chat_history.controls.append(row)
         try:
             self.chat_history.update()
@@ -517,6 +642,7 @@ class ChatScreen(ft.Container):
                 msg['timestamp'],
                 msg.get('id'),
                 msg.get('file_name'),
+                msg.get('local_path'),
                 msg.get('updated_at'),
                 msg.get('is_read', False)
             )

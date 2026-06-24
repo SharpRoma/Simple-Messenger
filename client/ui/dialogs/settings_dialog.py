@@ -38,33 +38,42 @@ class SettingsDialog(BaseDialog):
             ft.Text("Список активных сессий вашего аккаунта:", size=14, color=ft.Colors.GREY_300),
             self.sessions_list_view,
             ft.Divider(),
-            ft.Container(content=self.terminate_btn, alignment=ft.alignment.center)
+            ft.Container(content=self.terminate_btn, alignment=ft.Alignment.CENTER)
         ], tight=True, spacing=10)
 
         # Компоновка вкладками
         tabs = ft.Tabs(
             selected_index=0,
-            tabs=[
-                ft.Tab(
-                    text="Основные",
-                    content=ft.Container(
-                        content=ft.Column([
-                            self.autostart_switch,
-                            self.notify_switch,
-                            ft.Divider(),
-                            logout_btn
-                        ], tight=True, spacing=15),
-                        padding=ft.padding.symmetric(vertical=10)
+            length=2,
+            content=ft.Column(
+                expand=True,
+                controls=[
+                    ft.TabBar(
+                        tabs=[
+                            ft.Tab(label="Основные"),
+                            ft.Tab(label="Устройства")
+                        ]
+                    ),
+                    ft.TabBarView(
+                        expand=True,
+                        controls=[
+                            ft.Container(
+                                content=ft.Column([
+                                    self.autostart_switch,
+                                    self.notify_switch,
+                                    ft.Divider(),
+                                    logout_btn
+                                ], tight=True, spacing=15),
+                                padding=ft.Padding.symmetric(vertical=10)
+                            ),
+                            ft.Container(
+                                content=sessions_tab_content,
+                                padding=ft.Padding.symmetric(vertical=10)
+                            )
+                        ]
                     )
-                ),
-                ft.Tab(
-                    text="Устройства",
-                    content=ft.Container(
-                        content=sessions_tab_content,
-                        padding=ft.padding.symmetric(vertical=10)
-                    )
-                )
-            ],
+                ]
+            ),
             expand=1
         )
 
