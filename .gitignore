@@ -32,3 +32,6 @@ client/settings.json
 *.sqlite
 test_db.sqlite
 /server/test_db.sqlite
+
+
+/.agents/

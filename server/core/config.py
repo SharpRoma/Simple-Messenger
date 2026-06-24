@@ -8,6 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 class Settings(BaseSettings):
     server_secret: str
+    admin_secret: str
     jwt_secret_key: str
 
     jwt_algorithm: str = "HS256"

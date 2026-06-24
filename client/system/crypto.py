@@ -21,7 +21,12 @@ class CryptoManager:
         import keyring
         import secrets
         
-        passphrase = keyring.get_password("SimpleMessenger_KeysPass", self.username)
+        passphrase = None
+        try:
+            passphrase = keyring.get_password("SimpleMessenger_KeysPass", self.username)
+        except Exception as e:
+            logger.error(f"Failed to get key passphrase from keyring: {e}")
+
         if not passphrase:
             passphrase = secrets.token_hex(32)
             try:

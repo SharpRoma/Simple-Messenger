@@ -108,11 +108,11 @@ async def test_reset_password_success(client: AsyncClient, db_session: AsyncSess
     }
     await client.post("/api/auth/register", json=register_payload)
 
-    # Сбрасываем пароль
+    # Сбрасываем пароль с использованием ADMIN_SECRET (niir-reset)
     reset_payload = {
         "username": "testuser",
         "new_password": "newpassword123",
-        "secret": "niir-invite"
+        "secret": "niir-reset"
     }
     response = await client.post("/api/auth/reset-password", json=reset_payload)
     assert response.status_code == 200
@@ -133,3 +133,17 @@ async def test_reset_password_success(client: AsyncClient, db_session: AsyncSess
     }
     response_new = await client.post("/api/auth/login", json=login_payload_new)
     assert response_new.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_reset_password_wrong_secret(client: AsyncClient):
+    # Пытаемся использовать инвайт-код (niir-invite) вместо админ-секрета
+    reset_payload = {
+        "username": "testuser",
+        "new_password": "newpassword123",
+        "secret": "niir-invite"
+    }
+    response = await client.post("/api/auth/reset-password", json=reset_payload)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Неверный секретный код администратора"
+

@@ -53,3 +53,10 @@ async def client(db_session: AsyncSession) -> AsyncClient:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function", autouse=True)
+def clear_rate_limiter():
+    from api.routes.auth import auth_limiter
+    auth_limiter.clear()
+

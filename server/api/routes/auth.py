@@ -14,12 +14,15 @@ from models.session import UserSession
 from schemas.auth import UserRegister, UserLogin, TokenResponse, UserReset, PublicKeyRequest
 from api.dependencies import get_current_user
 from api.websockets import manager
+from core.rate_limiter import InMemoryRateLimiter
+
+auth_limiter = InMemoryRateLimiter(requests_limit=5, window_seconds=60)
 
 # Создаем роутер
 router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
 
-@router.post("/register", response_model=TokenResponse)
+@router.post("/register", response_model=TokenResponse, dependencies=[Depends(auth_limiter)])
 async def register(user_data: UserRegister, request: Request, db: AsyncSession = Depends(get_db)):
     # 1. Проверяем секретный код сервера
     if user_data.secret != settings.server_secret:
@@ -58,7 +61,7 @@ async def register(user_data: UserRegister, request: Request, db: AsyncSession =
     return {"access_token": token, "token_type": "bearer"}
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(auth_limiter)])
 async def login(user_data: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.username == user_data.username))
     user = result.scalar_one_or_none()
@@ -82,10 +85,10 @@ async def login(user_data: UserLogin, request: Request, db: AsyncSession = Depen
     return {"access_token": token, "token_type": "bearer"}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", dependencies=[Depends(auth_limiter)])
 async def reset_password(data: UserReset, db: AsyncSession = Depends(get_db)):
-    if data.secret != settings.server_secret:
-        raise HTTPException(status_code=400, detail="Неверный секретный код сервера")
+    if data.secret != settings.admin_secret:
+        raise HTTPException(status_code=400, detail="Неверный секретный код администратора")
 
     result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalar_one_or_none()

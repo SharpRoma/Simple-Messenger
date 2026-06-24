@@ -110,3 +110,23 @@ def test_unencrypted_key_migration(temp_keys_dir):
 
     with pytest.raises((ValueError, TypeError)):
         serialization.load_pem_private_key(updated_pem, password=None)
+
+
+def test_keyring_failure_fallback(temp_keys_dir):
+    # Тест случая, когда системный брелок ломается или отсутствует
+    mgr = CryptoManager(temp_keys_dir, "fallback_user")
+    
+    def raise_error(*args, **kwargs):
+        raise RuntimeError("No keyring backend available")
+        
+    with patch("keyring.get_password", side_effect=raise_error), \
+         patch("keyring.set_password", side_effect=raise_error):
+         
+         mgr.init_keys()
+         assert mgr.priv_key_path.exists()
+         assert mgr.pub_key_path.exists()
+         
+         # Проверяем, что используется фоллбек-пароль
+         passphrase = mgr._get_or_create_passphrase()
+         assert passphrase == "fallback_passphrase_fallback_user"
+
