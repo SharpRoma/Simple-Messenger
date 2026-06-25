@@ -247,3 +247,18 @@ class ClientDatabase:
                 }
                 for m in reversed(messages)
             ]
+
+    def get_unread_count(self, chat_id: int, current_username: str) -> int:
+        with self.Session() as session:
+            return session.query(Message).filter(
+                Message.chat_id == chat_id,
+                Message.sender != current_username,
+                Message.is_read == False
+            ).count()
+
+    def has_any_unread(self, current_username: str) -> bool:
+        with self.Session() as session:
+            return session.query(Message).filter(
+                Message.sender != current_username,
+                Message.is_read == False
+            ).limit(1).count() > 0

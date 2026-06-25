@@ -44,6 +44,7 @@ class ChatController(BaseController):
         self.editing_new_filename = None
         self.is_searching = False
         self.scroll_positions = {}
+        self.last_notif_time = {}
         
         self.profile_dialog = None
         self.subscribe_to_events()
@@ -80,6 +81,7 @@ class ChatController(BaseController):
         self.is_searching = False
         self.profile_dialog = None
         self.scroll_positions = {}
+        self.last_notif_time = {}
 
     def get_chat_name(self, chat_data: dict) -> str:
         name = chat_data.get('name', 'Неизвестный чат')
@@ -136,7 +138,12 @@ class ChatController(BaseController):
         self.page.add(self.chat_screen)
 
         # Загружаем чаты из локальной БД
-        cached_chats = self.app.db.get_chats()
+        cached_chats = []
+        if self.app.db:
+            try:
+                cached_chats = self.app.db.get_chats()
+            except Exception as e:
+                logger.error(f"Error loading cached chats: {e}", exc_info=True)
         if cached_chats:
             for c in cached_chats:
                 self.chats_info[c['id']] = c
@@ -146,9 +153,13 @@ class ChatController(BaseController):
                 saved_chat = next((c for c in cached_chats if c.get('type') == 'saved'), None)
                 chat_to_select = saved_chat['id'] if saved_chat else cached_chats[0]['id']
 
-            self.handle_select_chat(chat_to_select)
+            try:
+                self.handle_select_chat(chat_to_select)
+            except Exception as e:
+                logger.error(f"Error selecting initial chat: {e}", exc_info=True)
 
         self.update_drawer()
+        self.update_menu_badge()
         self.page.run_task(self.check_and_cleanup_cache)
 
     def handle_send_message(self, text: str):
@@ -269,6 +280,17 @@ class ChatController(BaseController):
                 subtitle = "групповой чат"
 
         self.chat_screen.set_chat_title(cname, subtitle=subtitle, show_info=True, is_online=is_online)
+
+    def update_menu_badge(self):
+        if not self.chat_screen:
+            return
+        has_unread = False
+        if self.app.db:
+            try:
+                has_unread = self.app.db.has_any_unread(self.app.current_username)
+            except Exception as e:
+                logger.error(f"Error getting has_any_unread: {e}")
+        self.chat_screen.update_menu_badge(has_unread)
 
     def show_create_group_modal(self):
         def on_create(name):
@@ -559,9 +581,9 @@ class ChatController(BaseController):
             self.is_searching = True
             self.app.show_snackbar(f"Найдено: {len(results)} сообщений")
             if self.chat_screen:
-                self.chat_screen.clear_messages(auto_scroll=True)
+                self.chat_screen.clear_messages(auto_scroll=False)
                 self.chat_screen.set_messages(results)
-                self.chat_screen.finish_initial_loading()
+                self.chat_screen.scroll_to_bottom(duration=0)
         else:
             self.page.run_task(self.app.network.send, {
                 "action": "search_messages",
@@ -592,7 +614,7 @@ class ChatController(BaseController):
         self.is_reconnecting = True
 
         if self.chat_screen:
-            self.chat_screen.add_system_message("Связь потеряна. Переподключение через 3 сек...", ft.Colors.RED)
+            self.chat_screen.add_system_message("Связь потеряна. Переподключение через 3 сек...", ft.Colors.RED, key="sys_disconnect")
 
         try:
             await asyncio.sleep(3)
@@ -605,7 +627,15 @@ class ChatController(BaseController):
 
             if response.get("status") == "ok":
                 if self.chat_screen:
-                    self.chat_screen.add_system_message("Соединение восстановлено!", ft.Colors.GREEN)
+                    self.chat_screen.remove_system_message("sys_disconnect")
+                    self.chat_screen.add_system_message("Соединение восстановлено!", ft.Colors.GREEN, key="sys_reconnect")
+                    
+                    async def remove_green_msg():
+                        await asyncio.sleep(3)
+                        if self.chat_screen:
+                            self.chat_screen.remove_system_message("sys_reconnect")
+                    self.page.run_task(remove_green_msg)
+
                 await self.app.event_bus.publish("reconnect")
                 await self.app.network.send({"action": "get_chats"})
                 if self.active_chat_id:
@@ -634,7 +664,7 @@ class ChatController(BaseController):
                     logger.error(f"Failed to decrypt message {msg.get('id')}: {e}")
                     msg["text"] = "[Ошибка расшифрования]"
 
-    async def on_net_message(self, data):
+    async def _on_net_message_impl(self, data):
         action = data.get("action")
 
         if action == "new_msg":
@@ -672,13 +702,26 @@ class ChatController(BaseController):
                     updated_at=msg.get('updated_at'),
                     is_read=msg.get('is_read', False),
                     scroll_to_bottom=True,
-                    scroll_duration=100
+                    scroll_duration=0
                 )
                 if msg['sender'] != self.app.current_username:
                     self.page.run_task(self.app.network.send, {"action": "read_chat", "chat_id": chat_id})
             else:
                 if self.chat_screen:
-                    self.chat_screen.add_system_message(f"[🔔] Новое сообщение в чате '{cname}'", ft.Colors.YELLOW)
+                    import time
+                    now = time.time()
+                    self.last_notif_time[chat_id] = now
+                    self.chat_screen.add_system_message(
+                        f"[🔔] Новое сообщение в чате '{cname}'",
+                        ft.Colors.YELLOW,
+                        key=f"sys_notif_{chat_id}"
+                    )
+                    async def remove_notif():
+                        await asyncio.sleep(3)
+                        if self.last_notif_time.get(chat_id) == now:
+                            if self.chat_screen:
+                                self.chat_screen.remove_system_message(f"sys_notif_{chat_id}")
+                    self.page.run_task(remove_notif)
 
             if msg['sender'] != self.app.current_username:
                 if is_hidden or not is_active_chat or self.app.settings.get("notify_always"):
@@ -686,6 +729,9 @@ class ChatController(BaseController):
                         'file_name') else f"{msg['sender']}: {msg.get('text', '')}"
                     self.app.os.notify(f"Чат: {cname}", notif_text)
                     self.app.os.set_tray_badge(True)
+
+            self.update_drawer()
+            self.update_menu_badge()
 
         elif action == "msg_deleted":
             msg_id = data.get("msg_id")
@@ -739,9 +785,9 @@ class ChatController(BaseController):
                     msg_copy['local_path'] = local_path
                     enriched_results.append(msg_copy)
                 
-                self.chat_screen.clear_messages(auto_scroll=True)
+                self.chat_screen.clear_messages(auto_scroll=False)
                 self.chat_screen.set_messages(enriched_results)
-                self.chat_screen.finish_initial_loading()
+                self.chat_screen.scroll_to_bottom(duration=0)
 
         elif action == "messages_read":
             chat_id = data.get("chat_id")
@@ -749,6 +795,8 @@ class ChatController(BaseController):
                 self.app.db.mark_chat_as_read(chat_id, self.app.current_username)
             if chat_id == self.active_chat_id and self.chat_screen:
                 self.chat_screen.mark_own_messages_as_read()
+            self.update_drawer()
+            self.update_menu_badge()
 
         elif action == "chat_list":
             chats = data.get("chats", [])
@@ -811,13 +859,30 @@ class ChatController(BaseController):
             if offset == 0:
                 self.update_chat_header()
                 if self.chat_screen:
-                    saved_pos = self.scroll_positions.get(chat_id)
-                    self.chat_screen.clear_messages(auto_scroll=(saved_pos is None))
-                    self.chat_screen.set_messages(enriched_msgs)
-                    if saved_pos is not None:
-                        self.chat_screen.restore_scroll_position(saved_pos)
+                    current_controls = self.chat_screen.chat_history.controls
+                    is_same = False
+                    if current_controls and len(current_controls) == len(enriched_msgs):
+                        is_same = True
+                        for ctrl, msg in zip(current_controls, enriched_msgs):
+                            if (getattr(ctrl, "msg_id", None) != msg.get("id") or
+                                (getattr(ctrl, "sender", "") or "").lower() != (msg.get("sender") or "").lower() or
+                                getattr(ctrl, "text", "") != msg.get("text", "") or
+                                getattr(ctrl, "file_name", None) != msg.get("file_name") or
+                                getattr(ctrl, "local_path", None) != msg.get("local_path") or
+                                getattr(ctrl, "updated_at", None) != msg.get("updated_at") or
+                                bool(getattr(ctrl, "is_read", False)) != bool(msg.get("is_read", False))):
+                                is_same = False
+                                break
+                    if not is_same:
+                        saved_pos = self.scroll_positions.get(chat_id)
+                        self.chat_screen.clear_messages(auto_scroll=False)
+                        self.chat_screen.set_messages(enriched_msgs)
+                        if saved_pos is not None:
+                            self.chat_screen.restore_scroll_position(saved_pos)
+                        else:
+                            self.chat_screen.scroll_to_bottom(duration=0)
                     else:
-                        self.chat_screen.finish_initial_loading()
+                        logger.info("History matches cached messages, skipping UI update and scroll jump.")
             else:
                 if enriched_msgs and self.chat_screen:
                     self.chat_screen.prepend_messages(enriched_msgs)
@@ -834,13 +899,30 @@ class ChatController(BaseController):
                     if offset == 0:
                         self.update_chat_header()
                         if self.chat_screen:
-                            saved_pos = self.scroll_positions.get(chat_id)
-                            self.chat_screen.clear_messages(auto_scroll=(saved_pos is None))
-                            self.chat_screen.set_messages(cached_msgs)
-                            if saved_pos is not None:
-                                self.chat_screen.restore_scroll_position(saved_pos)
+                            current_controls = self.chat_screen.chat_history.controls
+                            is_same = False
+                            if current_controls and len(current_controls) == len(cached_msgs):
+                                is_same = True
+                                for ctrl, msg in zip(current_controls, cached_msgs):
+                                    if (getattr(ctrl, "msg_id", None) != msg.get("id") or
+                                        (getattr(ctrl, "sender", "") or "").lower() != (msg.get("sender") or "").lower() or
+                                        getattr(ctrl, "text", "") != msg.get("text", "") or
+                                        getattr(ctrl, "file_name", None) != msg.get("file_name") or
+                                        getattr(ctrl, "local_path", None) != msg.get("local_path") or
+                                        getattr(ctrl, "updated_at", None) != msg.get("updated_at") or
+                                        bool(getattr(ctrl, "is_read", False)) != bool(msg.get("is_read", False))):
+                                        is_same = False
+                                        break
+                            if not is_same:
+                                saved_pos = self.scroll_positions.get(chat_id)
+                                self.chat_screen.clear_messages(auto_scroll=False)
+                                self.chat_screen.set_messages(cached_msgs)
+                                if saved_pos is not None:
+                                    self.chat_screen.restore_scroll_position(saved_pos)
+                                else:
+                                    self.chat_screen.scroll_to_bottom(duration=0)
                             else:
-                                self.chat_screen.finish_initial_loading()
+                                logger.info("Offline cache matches current screen, skipping double render.")
                     else:
                         if self.chat_screen:
                             self.chat_screen.prepend_messages(cached_msgs)
@@ -965,6 +1047,12 @@ class ChatController(BaseController):
                 snack.open = True
                 self.page.update()
 
+    async def on_net_message(self, data):
+        try:
+            await self._on_net_message_impl(data)
+        except Exception as e:
+            logger.error(f"Error in on_net_message handling action '{data.get('action') if isinstance(data, dict) else 'unknown'}': {e}", exc_info=True)
+
     def update_drawer(self):
         def _close_drawer_btn(e):
             async def close_task():
@@ -1005,10 +1093,30 @@ class ChatController(BaseController):
         for cid, chat in self.chats_info.items():
             if chat.get('type') == 'group':
                 has_groups = True
+                unread_count = 0
+                if self.app.db:
+                    try:
+                        unread_count = self.app.db.get_unread_count(cid, self.app.current_username)
+                    except Exception as e:
+                        logger.error(f"Error getting group unread count: {e}")
+                trailing_badge = None
+                if unread_count > 0:
+                    trailing_badge = ft.Container(
+                        content=ft.Text(str(unread_count), color=ft.Colors.WHITE, size=10, weight="bold"),
+                        bgcolor=ft.Colors.RED,
+                        border_radius=10,
+                        width=20,
+                        height=20,
+                        alignment=ft.Alignment.CENTER
+                    )
                 controls.append(
-                    ft.ListTile(leading=ft.Icon(ft.Icons.GROUP),
-                    title=ft.Text(chat['name']),
-                    on_click=make_select(cid)))
+                    ft.ListTile(
+                        leading=ft.Icon(ft.Icons.GROUP),
+                        title=ft.Text(chat['name']),
+                        trailing=trailing_badge,
+                        on_click=make_select(cid)
+                    )
+                )
         if not has_groups:
             controls.append(ft.Container(padding=15, content=ft.Text("Нет групп", color=ft.Colors.GREY_500)))
         controls.append(ft.Divider())
@@ -1023,10 +1131,27 @@ class ChatController(BaseController):
                     leading_icon = ft.Icon(ft.Icons.LOCK, color=ft.Colors.GREEN)
                 else:
                     leading_icon = ft.Icon(ft.Icons.PERSON)
+                unread_count = 0
+                if self.app.db:
+                    try:
+                        unread_count = self.app.db.get_unread_count(cid, self.app.current_username)
+                    except Exception as e:
+                        logger.error(f"Error getting dialog unread count: {e}")
+                trailing_badge = None
+                if unread_count > 0:
+                    trailing_badge = ft.Container(
+                        content=ft.Text(str(unread_count), color=ft.Colors.WHITE, size=10, weight="bold"),
+                        bgcolor=ft.Colors.RED,
+                        border_radius=10,
+                        width=20,
+                        height=20,
+                        alignment=ft.Alignment.CENTER
+                    )
                 controls.append(
                     ft.ListTile(
                         leading=leading_icon,
                         title=ft.Text(display_name),
+                        trailing=trailing_badge,
                         on_click=make_select(cid)
                     )
                 )
@@ -1064,10 +1189,21 @@ class ChatController(BaseController):
 
         # Сохраняем позицию скролла предыдущего активного чата перед переключением
         if self.active_chat_id is not None and self.chat_screen:
-            self.scroll_positions[self.active_chat_id] = self.chat_screen.current_scroll_pos
+            if self.chat_screen.is_near_bottom:
+                self.scroll_positions.pop(self.active_chat_id, None)
+            else:
+                self.scroll_positions[self.active_chat_id] = self.chat_screen.current_scroll_pos
 
         self.active_chat_id = chat_id
         self.app.os.set_tray_badge(False)
+        self.page.run_task(self.app.network.send, {"action": "read_chat", "chat_id": chat_id})
+        if self.app.db:
+            try:
+                self.app.db.mark_chat_as_read(chat_id, self.app.current_username)
+            except Exception as e:
+                logger.error(f"Error marking chat as read: {e}")
+        self.update_drawer()
+        self.update_menu_badge()
 
         self.history_offset = 0
         self.is_loading_history = True
@@ -1077,14 +1213,19 @@ class ChatController(BaseController):
 
         if self.chat_screen:
             saved_pos = self.scroll_positions.get(chat_id)
-            self.chat_screen.clear_messages(auto_scroll=(saved_pos is None))
-            cached_msgs = self.app.db.get_messages(chat_id, limit=20, offset=0)
+            self.chat_screen.clear_messages(auto_scroll=False)
+            cached_msgs = []
+            if self.app.db:
+                try:
+                    cached_msgs = self.app.db.get_messages(chat_id, limit=20, offset=0)
+                except Exception as e:
+                    logger.error(f"Error loading cached messages: {e}", exc_info=True)
             self.chat_screen.set_messages(cached_msgs)
             
             if saved_pos is not None:
                 self.chat_screen.restore_scroll_position(saved_pos)
             else:
-                self.chat_screen.finish_initial_loading()
+                self.chat_screen.scroll_to_bottom(duration=0)
 
         self.page.run_task(self.app.network.send, {"action": "get_history", "chat_id": chat_id, "limit": 20, "offset": 0})
 
@@ -1101,7 +1242,12 @@ class ChatController(BaseController):
         self.history_offset += 20
 
         if not self.app.network.ws:
-            cached_msgs = self.app.db.get_messages(self.active_chat_id, limit=20, offset=self.history_offset)
+            cached_msgs = []
+            if self.app.db:
+                try:
+                    cached_msgs = self.app.db.get_messages(self.active_chat_id, limit=20, offset=self.history_offset)
+                except Exception as e:
+                    logger.error(f"Error loading older cached messages: {e}", exc_info=True)
             if not cached_msgs:
                 self.has_more_history = False
             else:

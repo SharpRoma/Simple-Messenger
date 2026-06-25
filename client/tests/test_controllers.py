@@ -75,6 +75,7 @@ def test_chat_controller_scroll_preservation():
         # Задаем фейковый chat_screen
         mock_screen = MagicMock()
         mock_screen.current_scroll_pos = 150.0
+        mock_screen.is_near_bottom = False
         chat_ctrl.chat_screen = mock_screen
         
         # Переключаем с чата 1 на чат 2

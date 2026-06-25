@@ -27,6 +27,9 @@ LOCAL_ASSETS_DIR = BASE_DIR / "assets"
 
 # --- УМНЫЕ ПУТИ ДЛЯ ОС (Где храним данные) ---
 def get_app_data_dir() -> Path:
+    custom_dir = os.environ.get("MESSENGER_DATA_DIR")
+    if custom_dir:
+        return Path(custom_dir)
     system = platform.system()
     if system == "Windows":
         app_data = os.environ.get('APPDATA', os.path.expanduser('~'))

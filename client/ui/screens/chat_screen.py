@@ -58,6 +58,7 @@ class ChatScreen(ft.Container):
         self.is_near_bottom = True
         self.is_initial_loading = False
         self.current_scroll_pos = 0.0
+        self.scroll_session_id = 0
         self._build_ui()
 
     def _build_ui(self):
@@ -105,11 +106,26 @@ class ChatScreen(ft.Container):
             visible=False
         )
 
+        self.menu_badge = ft.Container(
+            bgcolor=ft.Colors.RED,
+            width=8,
+            height=8,
+            border_radius=4,
+            right=8,
+            top=8,
+            visible=False
+        )
+        self.menu_button = ft.IconButton(
+            icon=ft.Icons.MENU,
+            on_click=lambda e: self.on_open_drawer()
+        )
+        self.menu_stack = ft.Stack([
+            self.menu_button,
+            self.menu_badge
+        ])
+
         header_row = ft.Row([
-            ft.IconButton(
-                icon=ft.Icons.MENU,
-                on_click=lambda e: self.on_open_drawer()
-            ),
+            self.menu_stack,
             self.title_container,
             ft.Row(
                 [self.search_btn, self.pin_btn],
@@ -293,16 +309,20 @@ class ChatScreen(ft.Container):
     def focus_input(self):
         async def focus_task():
             import asyncio
-            for delay in [0.1, 0.3, 0.6]:
+            try:
+                await self.msg_input.focus()
+            except Exception:
+                pass
+            for delay in [0.05, 0.15, 0.3, 0.6]:
                 await asyncio.sleep(delay)
                 if not hasattr(self, 'page') or not self.page:
                     break
                 try:
-                    self.msg_input.focus()
-                    self.msg_input.update()
+                    await self.msg_input.focus()
                 except Exception:
                     pass
-        self.page.run_task(focus_task)
+        if hasattr(self, 'page') and self.page:
+            self.page.run_task(focus_task)
 
     # --- Публичные методы для истории ---
     def clear_messages(self, auto_scroll: bool = False):
@@ -342,31 +362,74 @@ class ChatScreen(ft.Container):
                 await asyncio.sleep(0.1)
                 self.chat_history.auto_scroll = False
                 try:
-                    self.chat_history.update()
+                    await self.chat_history.update()
                 except Exception:
                     pass
             self.page.run_task(disable_auto_scroll)
 
     def restore_scroll_position(self, offset: float, duration: int = 0):
+        self.scroll_session_id += 1
+        session_id = self.scroll_session_id
+        self.is_initial_loading = True
+        self.current_scroll_pos = offset
+        self.is_near_bottom = False
         async def restore_task():
             import asyncio
             await asyncio.sleep(0.08)
+            if session_id != self.scroll_session_id:
+                return
             try:
                 if duration and duration > 0:
                     await self.chat_history.scroll_to(offset=offset, duration=duration)
                 else:
                     await self.chat_history.scroll_to(offset=offset)
-                self.chat_history.update()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error in restore_scroll_position: {e}")
+            await asyncio.sleep(0.15)
+            if session_id != self.scroll_session_id:
+                return
             self.is_initial_loading = False
         self.page.run_task(restore_task)
 
-    def add_system_message(self, text: str, color=ft.Colors.WHITE):
-        row = ft.Row([ft.Text(text, color=color, font_family="Consolas", expand=True)])
+    def update_menu_badge(self, show: bool):
+        self.menu_badge.visible = show
+        try:
+            self.menu_badge.update()
+        except Exception:
+            pass
+
+    def add_system_message(self, text: str, color=ft.Colors.WHITE, key: str = None):
+        if key:
+            for ctrl in self.chat_history.controls:
+                if getattr(ctrl, "key", None) == key:
+                    try:
+                        if isinstance(ctrl, ft.Row) and ctrl.controls:
+                            ctrl.controls[0].value = text
+                            ctrl.controls[0].color = color
+                            ctrl.controls[0].update()
+                    except Exception:
+                        pass
+                    return
+
+        row = ft.Row([ft.Text(text, color=color, font_family="Consolas", expand=True)], key=key)
         self.chat_history.controls.append(row)
-        try: self.chat_history.update()
-        except Exception: pass
+        try:
+            self.chat_history.update()
+            if self.is_near_bottom:
+                self.scroll_to_bottom(duration=0)
+        except Exception:
+            pass
+
+    def remove_system_message(self, key: str):
+        found = False
+        for ctrl in self.chat_history.controls:
+            if getattr(ctrl, "key", None) == key:
+                self.chat_history.controls.remove(ctrl)
+                found = True
+                break
+        if found:
+            try: self.chat_history.update()
+            except Exception: pass
 
     def remove_message(self, msg_id: int):
         target_key = f"msg_{msg_id}"
@@ -417,11 +480,11 @@ class ChatScreen(ft.Container):
         try:
             scroll_pos = float(e.pixels)
             max_scroll = float(e.max_scroll_extent)
-            self.is_near_bottom = (max_scroll - scroll_pos < 100)
 
             if self.is_initial_loading:
                 return
 
+            self.is_near_bottom = (max_scroll - scroll_pos < 100)
             self.current_scroll_pos = scroll_pos
 
             if scroll_pos < 50:
@@ -684,18 +747,25 @@ class ChatScreen(ft.Container):
         return container
 
     def scroll_to_bottom(self, duration: int = 0):
+        self.scroll_session_id += 1
+        session_id = self.scroll_session_id
+        self.is_initial_loading = True
+        self.is_near_bottom = True
         async def scroll_task():
             import asyncio
             await asyncio.sleep(0.08)
+            if session_id != self.scroll_session_id:
+                return
             try:
                 if duration and duration > 0:
                     await self.chat_history.scroll_to(offset=-1, duration=duration)
                 else:
                     await self.chat_history.scroll_to(offset=-1)
-                self.chat_history.update()
-            except Exception:
-                pass
-            self.is_near_bottom = True
+            except Exception as e:
+                logger.error(f"Error in scroll_to_bottom: {e}")
+            await asyncio.sleep(0.15)
+            if session_id != self.scroll_session_id:
+                return
             self.is_initial_loading = False
         self.page.run_task(scroll_task)
 
