@@ -62,14 +62,14 @@ xcopy client "%BUILD_DIR%" /E /I /H /Y /Q > nul
 cd /d "%BUILD_DIR%"
 
 echo Сборка нативного приложения (flet build)...
-call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
+call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows -v --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
 
 :: Возвращаемся в оригинальный корень проекта
 cd /d "%ORIGINAL_DIR%"
 
 if not exist "%BUILD_DIR%\dist\SimpleMessenger.exe" (
     echo ОШИБКА СБОРКИ: Файл SimpleMessenger.exe не был создан.
-    if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
+    echo Не удаляем временную папку %BUILD_DIR% для отладки.
     pause
     exit /b 1
 )
