@@ -6,6 +6,23 @@ set -e
 # Переходим в папку client
 cd "$(dirname "$0")/../client"
 
+# Активация виртуального окружения
+VENV_DIR="../.venv"
+if [ -d "$VENV_DIR" ]; then
+    echo "Активация виртуального окружения..."
+    source "$VENV_DIR/bin/activate"
+else
+    echo "ВНИМАНИЕ: Папка .venv не найдена в корне проекта. Сборка будет выполнена в текущем окружении."
+fi
+
+# Проверка наличия websockets и при необходимости установка зависимостей
+if python3 -c "import websockets" 2>/dev/null; then
+    echo "Зависимости найдены в виртуальном окружении."
+else
+    echo "ВНИМАНИЕ: Зависимости не найдены. Установка из requirements.txt..."
+    python3 -m pip install -r requirements.txt
+fi
+
 echo "Начинаем нативную сборку Simple Messenger для macOS..."
 
 # --- ЧИТАЕМ ВЕРСИЮ ИЗ CONFIG.PY ---
