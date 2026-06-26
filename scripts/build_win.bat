@@ -2,6 +2,15 @@
 chcp 65001 > nul
 cd /d "%~dp0\.."
 
+:: Обход ошибки путей с кириллицей (например, C:\Users\Администратор) при установке/работе Flutter SDK.
+:: Временно перенаправляем домашний профиль в стандартную ASCII-директорию C:\Users\Public.
+set USERPROFILE=C:\Users\Public
+set HOMEPATH=\Users\Public
+set HOMEDRIVE=C:
+set APPDATA=C:\Users\Public\AppData\Roaming
+set LOCALAPPDATA=C:\Users\Public\AppData\Local
+
+
 echo Начинаем сборку Simple Messenger для Windows...
 
 set ICON_PATH=client\assets\icon.ico
