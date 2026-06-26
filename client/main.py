@@ -73,9 +73,11 @@ def main(page: ft.Page):
     threading.Thread(target=listen_restore_signals, daemon=True).start()
 
     # 3. Настройка окна Flet
-    # 3. Настройка окна Flet
     page.title = "Simple Messenger"
-
+    page.window.width = 400
+    page.window.height = 550
+    page.window.min_width = 350
+    page.window.min_height = 400
     page.window.icon = "icon.ico" if platform.system() == "Windows" else "icon.png"
 
     # ПЕРЕХВАТЫВАЕМ КРЕСТИК ТОЛЬКО НА WINDOWS (ради системного трея)

@@ -23,7 +23,7 @@ PrivilegesRequired=admin
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\dist\SimpleMessenger.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "SimpleMessenger_Setup_*.exe"
 
 [Icons]
 Name: "{group}\Simple Messenger"; Filename: "{app}\SimpleMessenger.exe"

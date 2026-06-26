@@ -37,12 +37,19 @@ if %errorlevel% neq 0 (
 echo Удаление старых сборок...
 if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
+if exist "client\build" rmdir /s /q "client\build"
 if exist "*.spec" del /q "*.spec"
 if exist "*.ico" del /q "*.ico"
 
-echo Упаковка Python-кода (flet pack)...
-:: Вызываем flet.exe напрямую из виртуального окружения и добавляем websockets в скрытые импорты
-call .venv\Scripts\flet pack client\main.py --name "SimpleMessenger" --icon "%ICON_PATH%" --product-name "Simple Messenger" --product-version "%APP_VERSION%" --copyright "Simple Messenger" --add-data "client\assets;assets" --hidden-import websockets
+:: Заходим в папку client
+cd client
+
+echo Сборка нативного приложения (flet build)...
+:: Вызываем flet build напрямую из виртуального окружения
+call ..\.venv\Scripts\flet build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" --icon "assets\icon.ico" -o ..\dist
+
+:: Возвращаемся в корень
+cd ..
 
 if not exist "dist\SimpleMessenger.exe" (
     echo ОШИБКА СБОРКИ: Файл SimpleMessenger.exe не был создан.
@@ -60,14 +67,21 @@ if exist %ISCC_PATH% (
     :: Передаем версию в .iss файл через параметр /DAppVersion
     %ISCC_PATH% /O"dist" /DAppVersion="%APP_VERSION%" scripts\installer.iss > nul
     echo Установщик успешно создан!
-    echo Удаление исходного .exe файла...
-    if exist "dist\SimpleMessenger.exe" del /q "dist\SimpleMessenger.exe"
+    echo Очистка временных файлов сборки в dist...
+    :: Сохраняем готовый установщик во временный файл в корне
+    move "dist\SimpleMessenger_Setup_v%APP_VERSION%.exe" "SimpleMessenger_Setup_v%APP_VERSION%.exe" > nul
+    :: Удаляем папку dist со всеми DLL и ресурсами
+    rmdir /s /q "dist"
+    :: Пересоздаем чистую dist и возвращаем установщик на место
+    mkdir "dist"
+    move "SimpleMessenger_Setup_v%APP_VERSION%.exe" "dist\SimpleMessenger_Setup_v%APP_VERSION%.exe" > nul
 ) else (
     echo ВНИМАНИЕ: Inno Setup 6 не найден!
 )
 
 :: ФИНАЛЬНАЯ УБОРКА МУСОРА
 if exist "build" rmdir /s /q "build"
+if exist "client\build" rmdir /s /q "client\build"
 if exist "*.spec" del /q "*.spec"
 if exist "*.ico" del /q "*.ico"
 
