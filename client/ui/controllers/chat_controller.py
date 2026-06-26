@@ -3,6 +3,7 @@ import asyncio
 import base64
 import time
 import os
+import platform
 import logging
 from datetime import datetime
 
@@ -137,7 +138,8 @@ class ChatController(BaseController):
             on_cancel_edit=self.handle_cancel_edit,
             on_delete_attached_file=self.handle_delete_attached_file,
             on_search_messages=self.handle_search_messages,
-            on_clear_search=self.handle_clear_search
+            on_clear_search=self.handle_clear_search,
+            on_read_chat=self.mark_active_chat_as_read
         )
         self.page.add(self.chat_screen)
 
@@ -284,7 +286,20 @@ class ChatController(BaseController):
             elif is_group:
                 subtitle = "групповой чат"
 
-        self.chat_screen.set_chat_title(cname, subtitle=subtitle, show_info=True, is_online=is_online)
+        is_typing = len(typing_users) > 0
+        self.chat_screen.set_chat_title(cname, subtitle=subtitle, show_info=True, is_online=is_online, is_typing=is_typing)
+
+    def mark_active_chat_as_read(self):
+        if not self.active_chat_id or not self.app.db:
+            return
+        try:
+            self.app.db.mark_chat_as_read(self.active_chat_id, self.app.current_username)
+            self.page.run_task(self.app.network.send, {"action": "read_chat", "chat_id": self.active_chat_id})
+            self.update_drawer()
+            self.update_menu_badge()
+            self.update_tray_and_taskbar_badge()
+        except Exception as e:
+            logger.error(f"Error marking active chat as read: {e}")
 
     def update_menu_badge(self):
         if not self.chat_screen:
@@ -727,7 +742,7 @@ class ChatController(BaseController):
                     scroll_to_bottom=True,
                     scroll_duration=0
                 )
-                if msg['sender'] != self.app.current_username:
+                if msg['sender'] != self.app.current_username and getattr(self.chat_screen, "is_near_bottom", True):
                     self.page.run_task(self.app.network.send, {"action": "read_chat", "chat_id": chat_id})
                     if self.app.db:
                         try:
@@ -736,7 +751,6 @@ class ChatController(BaseController):
                             logger.error(f"Error marking active chat message as read: {e}")
             else:
                 if self.chat_screen:
-                    import time
                     now = time.time()
                     self.last_notif_time[chat_id] = now
                     self.chat_screen.add_system_message(
@@ -1060,7 +1074,6 @@ class ChatController(BaseController):
                 def on_show_in_finder(e, path=filepath):
                     open_folder_and_select_file(path)
 
-                import platform
                 action_label = "Показать в Finder" if platform.system() == "Darwin" else "Показать в папке"
 
                 self.app.os.notify("Файл скачан!", f"Сохранен в: {filepath}")
@@ -1090,6 +1103,22 @@ class ChatController(BaseController):
                     await self.page.close_drawer()
             self.page.run_task(close_task)
 
+        def make_hover_item(tile):
+            c = ft.Container(
+                content=tile,
+                border_radius=8,
+                margin=ft.Margin(left=8, top=2, right=8, bottom=2),
+                animate=200
+            )
+            def on_hover(e):
+                c.bgcolor = "#2c2c2c" if e.data == "true" else None
+                try:
+                    c.update()
+                except Exception:
+                    pass
+            c.on_hover = on_hover
+            return c
+
         controls = [
             ft.Container(
                 padding=10,
@@ -1111,10 +1140,12 @@ class ChatController(BaseController):
 
         if saved_id:
             controls.append(
-                ft.ListTile(
-                    leading=ft.Icon(ft.Icons.BOOKMARK, color=ft.Colors.BLUE_400),
-                    title=ft.Text("Избранное", weight="bold"),
-                    on_click=make_select(saved_id)
+                make_hover_item(
+                    ft.ListTile(
+                        leading=ft.Icon(ft.Icons.BOOKMARK, color=ft.Colors.BLUE_400),
+                        title=ft.Text("Избранное", weight="bold"),
+                        on_click=make_select(saved_id)
+                    )
                 )
             )
             controls.append(ft.Divider())
@@ -1140,11 +1171,13 @@ class ChatController(BaseController):
                         alignment=ft.Alignment.CENTER
                     )
                 controls.append(
-                    ft.ListTile(
-                        leading=ft.Icon(ft.Icons.GROUP),
-                        title=ft.Text(chat['name']),
-                        trailing=trailing_badge,
-                        on_click=make_select(cid)
+                    make_hover_item(
+                        ft.ListTile(
+                            leading=ft.Icon(ft.Icons.GROUP),
+                            title=ft.Text(chat['name']),
+                            trailing=trailing_badge,
+                            on_click=make_select(cid)
+                        )
                     )
                 )
         if not has_groups:
@@ -1178,11 +1211,13 @@ class ChatController(BaseController):
                         alignment=ft.Alignment.CENTER
                     )
                 controls.append(
-                    ft.ListTile(
-                        leading=leading_icon,
-                        title=ft.Text(display_name),
-                        trailing=trailing_badge,
-                        on_click=make_select(cid)
+                    make_hover_item(
+                        ft.ListTile(
+                            leading=leading_icon,
+                            title=ft.Text(display_name),
+                            trailing=trailing_badge,
+                            on_click=make_select(cid)
+                        )
                     )
                 )
 
@@ -1191,18 +1226,27 @@ class ChatController(BaseController):
         controls.append(ft.Divider())
 
         controls.append(
-            ft.ListTile(leading=ft.Icon(ft.Icons.ADD),
-            title=ft.Text("Создать диалог"),
-            on_click=lambda e: self.show_pm_modal()))
+            make_hover_item(
+                ft.ListTile(leading=ft.Icon(ft.Icons.ADD),
+                title=ft.Text("Создать диалог"),
+                on_click=lambda e: self.show_pm_modal())
+            )
+        )
         controls.append(
-            ft.ListTile(leading=ft.Icon(ft.Icons.GROUP_ADD),
-            title=ft.Text("Создать группу"),
-            on_click=lambda e: self.show_create_group_modal()))
+            make_hover_item(
+                ft.ListTile(leading=ft.Icon(ft.Icons.GROUP_ADD),
+                title=ft.Text("Создать группу"),
+                on_click=lambda e: self.show_create_group_modal())
+            )
+        )
         controls.append(ft.Divider())
         controls.append(
-            ft.ListTile(leading=ft.Icon(ft.Icons.SETTINGS),
-            title=ft.Text("Настройки"),
-            on_click=lambda e: self.show_settings_modal()))
+            make_hover_item(
+                ft.ListTile(leading=ft.Icon(ft.Icons.SETTINGS),
+                title=ft.Text("Настройки"),
+                on_click=lambda e: self.show_settings_modal())
+            )
+        )
 
         if not self.page.drawer:
             self.page.drawer = ft.NavigationDrawer(controls=controls)

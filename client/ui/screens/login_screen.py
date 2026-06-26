@@ -23,8 +23,7 @@ class LoginScreen(ft.Container):
         self.host_input = ft.TextField(
             label="Хост сервера",
             value=self.settings.get("host"),
-            expand=True,
-            on_submit=lambda e: self.port_input.focus()
+            expand=True
         )
 
         # 2. НОВОЕ Поле порта (только цифры)
@@ -32,22 +31,34 @@ class LoginScreen(ft.Container):
             label="Порт",
             value=str(self.settings.get("port", "8888")),
             width=80,
-            input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string=""),
-            on_submit=lambda e: self.user_input.focus()
+            input_filter=ft.InputFilter(allow=True, regex_string=r"[0-9]", replacement_string="")
         )
 
         # 3. Объединяем их в один ряд шириной 300
         server_row = ft.Row([self.host_input, self.port_input], width=300)
 
         self.user_input = ft.TextField(
-            label="Логин", value=self.settings.get("username"), width=300,
-            on_submit=lambda e: self.pass_input.focus()
+            label="Логин", value=self.settings.get("username"), width=300
         )
         self.pass_input = ft.TextField(
             label="Пароль", password=True, can_reveal_password=True,
             value=self.settings.get("password"), width=300,
             on_submit=self._submit_login
         )
+
+        # Привязываем асинхронные переходы по Enter
+        async def focus_port(e):
+            await self.port_input.focus()
+
+        async def focus_user(e):
+            await self.user_input.focus()
+
+        async def focus_pass(e):
+            await self.pass_input.focus()
+
+        self.host_input.on_submit = focus_port
+        self.port_input.on_submit = focus_user
+        self.user_input.on_submit = focus_pass
 
         self.auto_login_checkbox = ft.Checkbox(label="Входить автоматически", value=self.settings.get("auto_login"))
         checkbox_row = ft.Row([self.auto_login_checkbox], width=300)

@@ -2,6 +2,9 @@ import flet as ft
 from datetime import datetime
 import os
 import logging
+import asyncio
+import platform
+import re
 from system.utils import open_file_in_default_app, open_folder_and_select_file, open_url_in_browser
 
 logger = logging.getLogger("messenger.chat_screen")
@@ -28,7 +31,8 @@ class ChatScreen(ft.Container):
             on_cancel_edit,
             on_delete_attached_file,
             on_search_messages,
-            on_clear_search
+            on_clear_search,
+            on_read_chat
     ):
         super().__init__()
         self.expand = True
@@ -53,28 +57,49 @@ class ChatScreen(ft.Container):
         self.on_delete_attached_file = on_delete_attached_file
         self.on_search_messages = on_search_messages
         self.on_clear_search = on_clear_search
+        self.on_read_chat = on_read_chat
 
         self.is_pinned = False
         self.is_near_bottom = True
         self.is_initial_loading = False
+        self.new_messages_scrolled_up_count = 0
         self.current_scroll_pos = 0.0
         self.scroll_session_id = 0
         self._build_ui()
 
     def _build_ui(self):
         self.chat_history = ft.ListView(expand=True, spacing=5, auto_scroll=False, on_scroll=self._handle_scroll)
+        
+        self.msg_input_focused = False
         self.msg_input = ft.TextField(
             hint_text="Написать сообщение...", expand=True,
-            on_submit=self._submit_message,
-            on_focus=lambda e: self.on_input_focus(),
+            multiline=True,
+            min_lines=1,
+            max_lines=5,
+            on_focus=self._handle_input_focus,
+            on_blur=self._handle_input_blur,
             on_change=lambda e: self.on_typing()
         )
 
         self.chat_title = ft.Text("Simple Messenger", size=16, weight="bold")
         self.chat_subtitle = ft.Text(" ", size=8, color=ft.Colors.GREY_400)  # Подзаголовок со статусом! (по умолчанию пробел для фиксации высоты)
 
+        # Динамические точки для индикатора набора текста
+        self.dot1 = ft.Container(width=4, height=4, bgcolor=ft.Colors.GREEN_400, border_radius=2, animate_opacity=300)
+        self.dot2 = ft.Container(width=4, height=4, bgcolor=ft.Colors.GREEN_400, border_radius=2, animate_opacity=300)
+        self.dot3 = ft.Container(width=4, height=4, bgcolor=ft.Colors.GREEN_400, border_radius=2, animate_opacity=300)
+        self.dots_row = ft.Row([self.dot1, self.dot2, self.dot3], spacing=3, alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        self.dots_container = ft.Container(content=self.dots_row, visible=False)
+
+        subtitle_row = ft.Row(
+            [self.chat_subtitle, self.dots_container],
+            spacing=5,
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER
+        )
+
         title_col = ft.Column(
-            [self.chat_title, self.chat_subtitle],
+            [self.chat_title, subtitle_row],
             alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=0
@@ -192,9 +217,39 @@ class ChatScreen(ft.Container):
             self.close_search_btn
         ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, visible=False)
 
-        self.content = ft.Column([
-            header_row, ft.Divider(height=1),
-            self.search_panel,
+        # Кнопка скролла вниз со счетчиком новых сообщений
+        self.scroll_down_badge = ft.Container(
+            content=ft.Text("0", color=ft.Colors.WHITE, size=9, weight="bold"),
+            bgcolor=ft.Colors.RED,
+            border_radius=10,
+            width=18,
+            height=18,
+            alignment=ft.Alignment.CENTER,
+            right=0,
+            top=0,
+            visible=False
+        )
+
+        self.scroll_down_btn = ft.Container(
+            content=ft.Stack([
+                ft.IconButton(
+                    icon=ft.Icons.ARROW_DOWNWARD,
+                    icon_color=ft.Colors.WHITE,
+                    bgcolor="#2b5278",
+                    icon_size=20,
+                    on_click=lambda e: self.scroll_to_bottom(duration=300)
+                ),
+                self.scroll_down_badge
+            ]),
+            width=40,
+            height=40,
+            right=15,
+            bottom=15,
+            visible=False,
+            animate_opacity=200
+        )
+
+        chat_stack = ft.Stack([
             ft.Container(
                 content=self.chat_history,
                 expand=True,
@@ -202,16 +257,33 @@ class ChatScreen(ft.Container):
                 padding=10,
                 bgcolor="#1e1e1e"
             ),
+            self.scroll_down_btn
+        ], expand=True)
+
+        self.content = ft.Column([
+            header_row, ft.Divider(height=1),
+            self.search_panel,
+            chat_stack,
             self.edit_panel,
             input_row
         ],
         expand=True
         )
 
-    def set_chat_title(self, title: str, subtitle: str = "", show_info: bool = False, is_online: bool = False):
+    def set_chat_title(self, title: str, subtitle: str = "", show_info: bool = False, is_online: bool = False, is_typing: bool = False):
         self.chat_title.value = title
         self.chat_subtitle.value = subtitle if subtitle else " "
         self.chat_subtitle.color = ft.Colors.GREEN if is_online else ft.Colors.GREY_400
+
+        # Управляем видимостью точек
+        self.dots_container.visible = is_typing
+
+        # Если включился тайпинг и анимация еще не запущена, запускаем ее
+        if is_typing and not getattr(self, "is_typing_active", False):
+            self.is_typing_active = True
+            self.page.run_task(self._animate_dots_loop)
+        elif not is_typing:
+            self.is_typing_active = False
 
         self.info_btn.visible = show_info
         self.title_container.on_click = (lambda e: self.on_open_profile()) if show_info else None
@@ -220,8 +292,46 @@ class ChatScreen(ft.Container):
         try:
             self.chat_title.update()
             self.chat_subtitle.update()
+            self.dots_container.update()
             self.title_container.update()
             self.info_btn.update()
+        except Exception:
+            pass
+
+    async def _animate_dots_loop(self):
+        try:
+            while getattr(self, "is_typing_active", False) and self.dots_container.visible:
+                for active_idx in range(3):
+                    if not getattr(self, "is_typing_active", False) or not self.dots_container.visible:
+                        break
+                    self.dot1.opacity = 1.0 if active_idx == 0 else 0.3
+                    self.dot2.opacity = 1.0 if active_idx == 1 else 0.3
+                    self.dot3.opacity = 1.0 if active_idx == 2 else 0.3
+                    try:
+                        self.dot1.update()
+                        self.dot2.update()
+                        self.dot3.update()
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.3)
+        except Exception:
+            pass
+
+    def _handle_input_focus(self, e):
+        self.msg_input_focused = True
+        self.on_input_focus()
+
+    def _handle_input_blur(self, e):
+        self.msg_input_focused = False
+
+    def update_scroll_down_badge(self, count: int):
+        if count > 0:
+            self.scroll_down_badge.content.value = str(count)
+            self.scroll_down_badge.visible = True
+        else:
+            self.scroll_down_badge.visible = False
+        try:
+            self.scroll_down_badge.update()
         except Exception:
             pass
 
@@ -308,7 +418,6 @@ class ChatScreen(ft.Container):
 
     def focus_input(self):
         async def focus_task():
-            import asyncio
             try:
                 await self.msg_input.focus()
             except Exception:
@@ -349,6 +458,14 @@ class ChatScreen(ft.Container):
         ]
         self.is_near_bottom = True
         self.is_initial_loading = True
+        self.new_messages_scrolled_up_count = 0
+        self.update_scroll_down_badge(0)
+        if self.scroll_down_btn.visible:
+            self.scroll_down_btn.visible = False
+            try:
+                self.scroll_down_btn.update()
+            except Exception:
+                pass
         try:
             self.chat_history.update()
         except Exception:
@@ -358,7 +475,6 @@ class ChatScreen(ft.Container):
         self.is_initial_loading = False
         if self.chat_history.auto_scroll:
             async def disable_auto_scroll():
-                import asyncio
                 await asyncio.sleep(0.1)
                 self.chat_history.auto_scroll = False
                 try:
@@ -374,7 +490,6 @@ class ChatScreen(ft.Container):
         self.current_scroll_pos = offset
         self.is_near_bottom = False
         async def restore_task():
-            import asyncio
             await asyncio.sleep(0.08)
             if session_id != self.scroll_session_id:
                 return
@@ -484,8 +599,25 @@ class ChatScreen(ft.Container):
             if self.is_initial_loading:
                 return
 
+            was_near_bottom = self.is_near_bottom
             self.is_near_bottom = (max_scroll - scroll_pos < 100)
             self.current_scroll_pos = scroll_pos
+
+            # Показывать кнопку, если прокрутили вверх хотя бы на 200 пикселей от низа
+            should_show_btn = (max_scroll - scroll_pos > 200)
+            if self.scroll_down_btn.visible != should_show_btn:
+                self.scroll_down_btn.visible = should_show_btn
+                try:
+                    self.scroll_down_btn.update()
+                except Exception:
+                    pass
+
+            # Если пользователь прокрутил вниз и достиг низа, сбрасываем счетчики и отмечаем чат прочитанным
+            if self.is_near_bottom and not was_near_bottom:
+                self.new_messages_scrolled_up_count = 0
+                self.update_scroll_down_badge(0)
+                if self.on_read_chat:
+                    self.on_read_chat()
 
             if scroll_pos < 50:
                 self.on_load_more_history()
@@ -576,7 +708,6 @@ class ChatScreen(ft.Container):
 
             # 3. Любой другой файл (Документ)
             else:
-                import os
                 is_downloaded = False
                 if local_path:
                     try:
@@ -649,10 +780,8 @@ class ChatScreen(ft.Container):
 
         show_finder_btn = None
         if file_name and local_path:
-            import os
             try:
                 if os.path.exists(local_path):
-                    import platform
                     system = platform.system()
                     if system == "Darwin":
                         btn_label = "Показать в Finder"
@@ -747,7 +876,6 @@ class ChatScreen(ft.Container):
         return container
 
     def _create_text_with_links(self, text: str, text_color):
-        import re
         URL_PATTERN = re.compile(r'(https?://[^\s]+)')
         if not URL_PATTERN.search(text):
             return ft.Text(text, color=text_color, size=13, selectable=True)
@@ -776,8 +904,21 @@ class ChatScreen(ft.Container):
         session_id = self.scroll_session_id
         self.is_initial_loading = True
         self.is_near_bottom = True
+        
+        # Сбросить счетчик и скрыть кнопку/бейдж при прокрутке вниз
+        self.new_messages_scrolled_up_count = 0
+        self.update_scroll_down_badge(0)
+        if self.on_read_chat:
+            self.on_read_chat()
+
+        if self.scroll_down_btn.visible:
+            self.scroll_down_btn.visible = False
+            try:
+                self.scroll_down_btn.update()
+            except Exception:
+                pass
+
         async def scroll_task():
-            import asyncio
             await asyncio.sleep(0.08)
             if session_id != self.scroll_session_id:
                 return
@@ -802,6 +943,9 @@ class ChatScreen(ft.Container):
             is_own = (sender.lower() == self.current_username.lower())
             if scroll_to_bottom and (force_scroll or self.is_near_bottom or is_own):
                 self.scroll_to_bottom(duration=scroll_duration)
+            elif not is_own:
+                self.new_messages_scrolled_up_count = getattr(self, "new_messages_scrolled_up_count", 0) + 1
+                self.update_scroll_down_badge(self.new_messages_scrolled_up_count)
         except Exception:
             pass
 

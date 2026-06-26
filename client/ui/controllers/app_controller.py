@@ -59,12 +59,17 @@ class AppController:
 
     def handle_keyboard_event(self, e: ft.KeyboardEvent):
         if e.key == "Escape" and self.is_logged_in and self.page.drawer:
-            async def toggle_drawer():
-                if self.page.drawer.open:
-                    await self.page.close_drawer()
-                else:
-                    await self.page.show_drawer()
-            self.page.run_task(toggle_drawer)
+            async def close_drawer():
+                await self.page.close_drawer()
+            self.page.run_task(close_drawer)
+            return
+
+        if e.key == "Enter" and not e.shift and self.is_logged_in:
+            if self.chat and self.chat.chat_screen and getattr(self.chat.chat_screen, "msg_input_focused", False):
+                val = self.chat.chat_screen.msg_input.value
+                if val.endswith("\n"):
+                    self.chat.chat_screen.msg_input.value = val[:-1]
+                self.chat.chat_screen._submit_message(None)
 
     def show_login_screen(self):
         self.is_logged_in = False
