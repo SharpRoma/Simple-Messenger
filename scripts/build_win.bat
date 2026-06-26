@@ -26,6 +26,14 @@ if exist ".venv\Scripts\activate.bat" (
     exit /b 1
 )
 
+:: Проверяем наличие websockets и при необходимости устанавливаем зависимости
+python -c "import websockets" 2>nul
+if %errorlevel% neq 0 (
+    echo ВНИМАНИЕ: Зависимости не найдены в виртуальном окружении. Установка...
+    python -m pip install -r client/requirements.txt
+)
+
+
 echo Удаление старых сборок...
 if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
