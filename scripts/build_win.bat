@@ -18,6 +18,15 @@ taskkill /F /IM SimpleMessenger.exe >nul 2>nul
 taskkill /F /IM flet.exe >nul 2>nul
 taskkill /F /IM flet_desktop.exe >nul 2>nul
 
+:: Фикс бага 32-битного CMake (File System Redirector)
+:: CMake (32-bit) ищет файлы в SysWOW64 вместо System32. Скопируем файл туда, чтобы CMake его нашёл.
+if exist "C:\Windows\System32\vcruntime140_1.dll" (
+    if not exist "C:\Windows\SysWOW64\vcruntime140_1.dll" (
+        echo Фикс для CMake: копирование vcruntime140_1.dll в SysWOW64...
+        copy "C:\Windows\System32\vcruntime140_1.dll" "C:\Windows\SysWOW64\vcruntime140_1.dll" > nul
+    )
+)
+
 set ICON_PATH=client\assets\icon.ico
 if not exist "%ICON_PATH%" (
     echo ОШИБКА: Файл %ICON_PATH% не найден!
