@@ -4,7 +4,7 @@ import asyncio
 class BaseDialog:
     def __init__(self, page: ft.Page):
         self.page = page
-        self.dialog = None  # Сюда наследники положат ft.AlertDialog
+        self.dialog = None
 
     def show(self):
         if self.dialog:

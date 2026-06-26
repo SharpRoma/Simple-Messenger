@@ -13,7 +13,7 @@ logger = logging.getLogger("messenger.config")
 
 
 # --- ВЕРСИЯ ПРИЛОЖЕНИЯ ---
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.2.0"
 
 
 # --- УМНЫЕ ПУТИ ДЛЯ PYINSTALLER ---

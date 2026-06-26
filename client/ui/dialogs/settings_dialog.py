@@ -1,5 +1,6 @@
 import flet as ft
 from datetime import datetime
+import config
 from .base_dialog import BaseDialog
 
 class SettingsDialog(BaseDialog):
@@ -102,10 +103,24 @@ class SettingsDialog(BaseDialog):
             self.max_size_input
         ], scroll=ft.ScrollMode.AUTO, spacing=15)
 
+        # Вкладка 4: О программе
+        about_tab_content = ft.Column([
+            ft.Container(
+                content=ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE, size=48, color=ft.Colors.BLUE_400),
+                alignment=ft.Alignment.CENTER,
+                margin=ft.Margin(0, 10, 0, 10)
+            ),
+            ft.Text("Simple Messenger", size=18, weight="bold", text_align=ft.TextAlign.CENTER),
+            ft.Text(f"Версия {config.APP_VERSION}", size=12, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+            ft.Divider(),
+            ft.Text("Быстрый и безопасный кроссплатформенный мессенджер на базе Python, Flet и FastAPI.", size=13, text_align=ft.TextAlign.CENTER),
+            ft.Text("Разработчик: SharpRoma\nЛицензия: MIT\nCopyright © 2026", size=12, color=ft.Colors.GREY_400, text_align=ft.TextAlign.CENTER),
+        ], spacing=10, scroll=ft.ScrollMode.AUTO, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+
         # Компоновка вкладками
         tabs = ft.Tabs(
             selected_index=0,
-            length=3,
+            length=4,
             content=ft.Column(
                 expand=True,
                 controls=[
@@ -113,7 +128,8 @@ class SettingsDialog(BaseDialog):
                         tabs=[
                             ft.Tab(label="Основные"),
                             ft.Tab(label="Устройства"),
-                            ft.Tab(label="Кэш")
+                            ft.Tab(label="Кэш"),
+                            ft.Tab(label="О программе")
                         ]
                     ),
                     ft.TabBarView(
@@ -138,6 +154,11 @@ class SettingsDialog(BaseDialog):
                             ),
                             ft.Container(
                                 content=cache_tab_content,
+                                padding=ft.Padding.symmetric(vertical=10),
+                                width=dialog_width - 40
+                            ),
+                            ft.Container(
+                                content=about_tab_content,
                                 padding=ft.Padding.symmetric(vertical=10),
                                 width=dialog_width - 40
                             )
