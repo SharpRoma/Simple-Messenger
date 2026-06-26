@@ -11,6 +11,10 @@ set HOMEDRIVE=C:
 set APPDATA=C:\Users\Public\AppData\Roaming
 set LOCALAPPDATA=C:\Users\Public\AppData\Local
 
+if not exist "%APPDATA%" mkdir "%APPDATA%"
+if not exist "%LOCALAPPDATA%" mkdir "%LOCALAPPDATA%"
+if not exist "C:\Users\Public\Documents" mkdir "C:\Users\Public\Documents"
+
 echo Начинаем сборку Simple Messenger для Windows...
 
 :: Завершаем любые работающие процессы приложения, чтобы избежать блокировки файлов при перезаписи
@@ -63,8 +67,8 @@ xcopy client C:\Users\Public\MessengerClient /E /I /H /Y /Q > nul
 cd /d "C:\Users\Public\MessengerClient"
 
 echo Сборка нативного приложения (flet build)...
-:: Вызываем flet build из оригинального виртуального окружения с флагом --clear-cache
-call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" --clear-cache -o dist
+:: Вызываем flet build из оригинального виртуального окружения
+call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
 
 :: Возвращаемся в оригинальный корень проекта
 cd /d "%ORIGINAL_DIR%"
