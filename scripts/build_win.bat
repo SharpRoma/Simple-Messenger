@@ -1,10 +1,12 @@
 @echo off
 chcp 65001 > nul
-cd /d "%~dp0\.."
-set ORIGINAL_DIR=%cd%
+
+:: Переходим в короткий (8.3) путь скрипта, чтобы избавиться от кириллицы в рабочем каталоге проекта!
+for %%I in ("%~dp0\..") do set PROJECT_DIR=%%~sI
+cd /d "%PROJECT_DIR%"
 
 :: Обход ошибки путей с кириллицей (например, C:\Users\Администратор) при работе Flutter SDK.
-:: Вместо подмены профиля используем встроенные короткие пути Windows (8.3), которые содержат только ASCII.
+:: Используем встроенные короткие пути Windows (8.3), которые содержат только ASCII.
 for %%I in ("%USERPROFILE%") do set USERPROFILE=%%~sI
 for %%I in ("%APPDATA%") do set APPDATA=%%~sI
 for %%I in ("%LOCALAPPDATA%") do set LOCALAPPDATA=%%~sI
@@ -12,7 +14,7 @@ for %%I in ("%HOMEPATH%") do set HOMEPATH=%%~sI
 
 echo Начинаем сборку Simple Messenger для Windows...
 
-:: Завершаем любые работающие процессы приложения, чтобы избежать блокировки файлов при перезаписи
+:: Завершаем любые работающие процессы приложения
 echo Закрытие запущенных копий приложения...
 taskkill /F /IM SimpleMessenger.exe >nul 2>nul
 taskkill /F /IM flet.exe >nul 2>nul
@@ -27,7 +29,6 @@ if not exist "%ICON_PATH%" (
 
 :: --- ЧИТАЕМ ВЕРСИЮ ИЗ CONFIG.PY ---
 for /f "tokens=2 delims==" %%a in ('findstr /B "APP_VERSION" client\config.py') do set RAW_VERSION=%%a
-:: Очищаем от кавычек и пробелов
 set APP_VERSION=%RAW_VERSION:"=%
 set APP_VERSION=%APP_VERSION: =%
 echo Обнаружена версия проекта: %APP_VERSION%
@@ -40,14 +41,12 @@ if exist ".venv\Scripts\activate.bat" (
     exit /b 1
 )
 
-:: Проверяем наличие websockets и при необходимости устанавливаем зависимости
+:: Проверяем наличие зависимостей
 python -c "import websockets" 2>nul
 if %errorlevel% neq 0 (
-    echo ВНИМАНИЕ: Зависимости не найдены в виртуальном окружении. Установка...
+    echo ВНИМАНИЕ: Зависимости не найдены. Установка...
     python -m pip install -r client/requirements.txt
 )
-
-set BUILD_DIR=C:\Users\Public\MessengerClient_%RANDOM%
 
 echo Удаление старых сборок...
 if exist "build" rmdir /s /q "build"
@@ -56,29 +55,19 @@ if exist "client\build" rmdir /s /q "client\build"
 if exist "*.spec" del /q "*.spec"
 if exist "*.ico" del /q "*.ico"
 
-echo Копирование исходников в ASCII-директорию для сборки...
-xcopy client "%BUILD_DIR%" /E /I /H /Y /Q > nul
-
-:: Заходим во временную ASCII папку
-cd /d "%BUILD_DIR%"
+:: Заходим в папку client для сборки
+cd client
 
 echo Сборка нативного приложения (flet build)...
-:: Вызываем flet build из оригинального виртуального окружения
-call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
+call ..\.venv\Scripts\flet build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o ..\dist
 
-:: Возвращаемся в оригинальный корень проекта
-cd /d "%ORIGINAL_DIR%"
+cd ..
 
-if not exist "%BUILD_DIR%\dist\SimpleMessenger.exe" (
+if not exist "dist\SimpleMessenger.exe" (
     echo ОШИБКА СБОРКИ: Файл SimpleMessenger.exe не был создан.
-    if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
     pause
     exit /b 1
 )
-
-:: Переносим скомпилированные файлы на место папки dist
-if exist "dist" rmdir /s /q "dist"
-move "%BUILD_DIR%\dist" "dist" > nul
 
 :: --- ИНТЕГРАЦИЯ INNO SETUP ---
 echo.
@@ -87,15 +76,12 @@ if not exist %ISCC_PATH% set ISCC_PATH="%ProgramFiles%\Inno Setup 6\ISCC.exe"
 
 if exist %ISCC_PATH% (
     echo Компиляция SimpleMessenger_Setup_v%APP_VERSION%.exe...
-    :: Передаем версию в .iss файл через параметр /DAppVersion
     %ISCC_PATH% /O"dist" /DAppVersion="%APP_VERSION%" scripts\installer.iss > nul
     echo Установщик успешно создан!
-    echo Очистка временных файлов сборки в dist...
-    :: Сохраняем готовый установщик во временный файл в корне
+    
+    :: Перемещаем установщик в корень и очищаем dist
     move "dist\SimpleMessenger_Setup_v%APP_VERSION%.exe" "SimpleMessenger_Setup_v%APP_VERSION%.exe" > nul
-    :: Удаляем папку dist со всеми DLL и ресурсами
     rmdir /s /q "dist"
-    :: Пересоздаем чистую dist и возвращаем установщик на место
     mkdir "dist"
     move "SimpleMessenger_Setup_v%APP_VERSION%.exe" "dist\SimpleMessenger_Setup_v%APP_VERSION%.exe" > nul
 ) else (
@@ -105,9 +91,6 @@ if exist %ISCC_PATH% (
 :: ФИНАЛЬНАЯ УБОРКА МУСОРА
 if exist "build" rmdir /s /q "build"
 if exist "client\build" rmdir /s /q "client\build"
-if exist "*.spec" del /q "*.spec"
-if exist "*.ico" del /q "*.ico"
-if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
 
 echo.
 echo СБОРКА УСПЕШНО ЗАВЕРШЕНА!
