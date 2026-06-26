@@ -1,7 +1,17 @@
+import sys
 import flet as ft
 import config
 import platform
 import logging
+
+if sys.platform == "win32":
+    import ctypes
+    try:
+        # Устанавливаем уникальный AppUserModelID, чтобы Windows корректно группировала
+        # окна приложения и не сбрасывала иконку на логотип Flet при закреплении на панели задач
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SharpRoma.SimpleMessenger.Client")
+    except Exception:
+        pass
 from system.logger import setup_logger
 from system.factory import get_system_adapter
 from ui.main_window import MainWindow
