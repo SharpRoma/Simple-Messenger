@@ -1,12 +1,17 @@
 @echo off
 chcp 65001 > nul
 
+<<<<<<< HEAD
+:: Обход ошибки путей с кириллицей (например, C:\Users\Администратор) при работе Flutter SDK.
+:: Вместо подмены профиля используем встроенные короткие пути Windows (8.3), которые содержат только ASCII.
+=======
 :: Переходим в короткий (8.3) путь скрипта, чтобы избавиться от кириллицы в рабочем каталоге проекта!
 for %%I in ("%~dp0\..") do set PROJECT_DIR=%%~sI
 cd /d "%PROJECT_DIR%"
 
 :: Обход ошибки путей с кириллицей (например, C:\Users\Администратор) при работе Flutter SDK.
 :: Используем встроенные короткие пути Windows (8.3), которые содержат только ASCII.
+>>>>>>> af60def (fix(scripts): использовать короткие пути (8.3) без создания временных папок для исправления сборки Windows)
 for %%I in ("%USERPROFILE%") do set USERPROFILE=%%~sI
 for %%I in ("%APPDATA%") do set APPDATA=%%~sI
 for %%I in ("%LOCALAPPDATA%") do set LOCALAPPDATA=%%~sI
@@ -48,6 +53,8 @@ if %errorlevel% neq 0 (
     python -m pip install -r client/requirements.txt
 )
 
+set BUILD_DIR=C:\Users\Public\MessengerClient_%RANDOM%
+
 echo Удаление старых сборок...
 if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
@@ -55,20 +62,41 @@ if exist "client\build" rmdir /s /q "client\build"
 if exist "*.spec" del /q "*.spec"
 if exist "*.ico" del /q "*.ico"
 
+<<<<<<< HEAD
+echo Копирование исходников в ASCII-директорию для сборки...
+xcopy client "%BUILD_DIR%" /E /I /H /Y /Q > nul
+
+:: Заходим во временную ASCII папку
+cd /d "%BUILD_DIR%"
+=======
 :: Заходим в папку client для сборки
 cd client
+>>>>>>> af60def (fix(scripts): использовать короткие пути (8.3) без создания временных папок для исправления сборки Windows)
 
 echo Сборка нативного приложения (flet build)...
 call ..\.venv\Scripts\flet build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o ..\dist
 
 cd ..
 
+<<<<<<< HEAD
+if not exist "%BUILD_DIR%\dist\SimpleMessenger.exe" (
+    echo ОШИБКА СБОРКИ: Файл SimpleMessenger.exe не был создан.
+    if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
+=======
 if not exist "dist\SimpleMessenger.exe" (
     echo ОШИБКА СБОРКИ: Файл SimpleMessenger.exe не был создан.
+>>>>>>> af60def (fix(scripts): использовать короткие пути (8.3) без создания временных папок для исправления сборки Windows)
     pause
     exit /b 1
 )
 
+<<<<<<< HEAD
+:: Переносим скомпилированные файлы на место папки dist
+if exist "dist" rmdir /s /q "dist"
+move "%BUILD_DIR%\dist" "dist" > nul
+
+=======
+>>>>>>> af60def (fix(scripts): использовать короткие пути (8.3) без создания временных папок для исправления сборки Windows)
 :: --- ИНТЕГРАЦИЯ INNO SETUP ---
 echo.
 set ISCC_PATH="%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
@@ -91,7 +119,13 @@ if exist %ISCC_PATH% (
 :: ФИНАЛЬНАЯ УБОРКА МУСОРА
 if exist "build" rmdir /s /q "build"
 if exist "client\build" rmdir /s /q "client\build"
+<<<<<<< HEAD
+if exist "*.spec" del /q "*.spec"
+if exist "*.ico" del /q "*.ico"
+if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
+=======
+>>>>>>> af60def (fix(scripts): использовать короткие пути (8.3) без создания временных папок для исправления сборки Windows)
 
 echo.
-echo СБОРКА УСПЕШНО ЗАВЕРШЕНА!
+echo СБОРКА УСПЕШНО ЗАВЕРШЕНА
 pause
