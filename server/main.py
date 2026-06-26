@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Simple Messenger API",
     description="REST API и WebSockets для мессенджера",
-    version="2.0.0",
+    version="1.3",
     lifespan=lifespan
 )
 
