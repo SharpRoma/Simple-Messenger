@@ -49,7 +49,6 @@ if exist "client\build" rmdir /s /q "client\build"
 if exist "*.spec" del /q "*.spec"
 if exist "*.ico" del /q "*.ico"
 if exist "C:\Users\Public\MessengerClient" rmdir /s /q "C:\Users\Public\MessengerClient"
-if exist "C:\Users\Public\MessengerClient-dist" rmdir /s /q "C:\Users\Public\MessengerClient-dist"
 
 echo Копирование исходников в ASCII-директорию для сборки...
 xcopy client C:\Users\Public\MessengerClient /E /I /H /Y /Q > nul
@@ -59,12 +58,12 @@ cd /d "C:\Users\Public\MessengerClient"
 
 echo Сборка нативного приложения (flet build)...
 :: Вызываем flet build из оригинального виртуального окружения
-call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o C:\Users\Public\MessengerClient-dist
+call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
 
 :: Возвращаемся в оригинальный корень проекта
 cd /d "%ORIGINAL_DIR%"
 
-if not exist "C:\Users\Public\MessengerClient-dist\SimpleMessenger.exe" (
+if not exist "C:\Users\Public\MessengerClient\dist\SimpleMessenger.exe" (
     echo ОШИБКА СБОРКИ: Файл SimpleMessenger.exe не был создан.
     if exist "C:\Users\Public\MessengerClient" rmdir /s /q "C:\Users\Public\MessengerClient"
     pause
@@ -73,7 +72,7 @@ if not exist "C:\Users\Public\MessengerClient-dist\SimpleMessenger.exe" (
 
 :: Переносим скомпилированные файлы на место папки dist
 if exist "dist" rmdir /s /q "dist"
-move "C:\Users\Public\MessengerClient-dist" "dist" > nul
+move "C:\Users\Public\MessengerClient\dist" "dist" > nul
 
 :: --- ИНТЕГРАЦИЯ INNO SETUP ---
 echo.
