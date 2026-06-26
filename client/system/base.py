@@ -7,7 +7,7 @@ class SystemAdapter:
     def notify(self, title: str, text: str):
         raise NotImplementedError
 
-    def set_tray_badge(self, has_unread: bool):
+    def set_tray_badge(self, count_str: str = None):
         raise NotImplementedError
 
     def handle_window_event(self, event_name: str):

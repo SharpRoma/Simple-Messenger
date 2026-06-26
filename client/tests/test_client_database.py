@@ -164,3 +164,40 @@ def test_search_messages_local(temp_db):
     assert len(res2) == 1
     assert res2[0]["id"] == 11
 
+
+def test_unread_counts(temp_db):
+    temp_db.save_chats([
+        {"id": 1, "name": "General", "type": "group"},
+        {"id": 2, "name": "Private", "type": "dialog"}
+    ])
+    
+    # Message from 'alice' (not 'bob')
+    # Message from 'bob' (is_read=True)
+    messages_1 = [
+        {"id": 10, "sender": "alice", "text": "Hello", "timestamp": 1000, "is_read": False},
+        {"id": 11, "sender": "bob", "text": "Hi", "timestamp": 1001, "is_read": True},
+        {"id": 12, "sender": "alice", "text": "Are you there?", "timestamp": 1002, "is_read": False}
+    ]
+    
+    messages_2 = [
+        {"id": 20, "sender": "charlie", "text": "Hey bob", "timestamp": 1003, "is_read": False}
+    ]
+    
+    temp_db.save_messages(1, messages_1)
+    temp_db.save_messages(2, messages_2)
+    
+    # If the current user is 'bob':
+    # Chat 1: has unread messages (id 10 and 12 from 'alice') -> 2 unread messages, 1 unread chat
+    # Chat 2: has unread message (id 20 from 'charlie') -> 1 unread message, 1 unread chat
+    # Total: 3 unread messages, 2 unread chats
+    assert temp_db.get_total_unread_messages("bob") == 3
+    assert temp_db.get_total_unread_chats("bob") == 2
+
+    # If the current user is 'alice':
+    # Chat 1: sender is 'alice' (does not count for her) and 'bob' (is_read=True). So 0 unread messages, 0 unread chats.
+    # Chat 2: sender is 'charlie' (is_read=False). So 1 unread message, 1 unread chat.
+    # Total: 1 unread message, 1 unread chat.
+    assert temp_db.get_total_unread_messages("alice") == 1
+    assert temp_db.get_total_unread_chats("alice") == 1
+
+

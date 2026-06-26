@@ -24,10 +24,14 @@ class MacOSAdapter(SystemAdapter):
         except Exception as e:
             logger.error(f"Mac Notification Error: {e}")
 
-    def set_tray_badge(self, has_unread: bool):
-        # На MacOS badge для Flet пока реализован слабо,
-        # но мы оставляем метод пустым, чтобы приложение не падало
-        pass
+    def set_tray_badge(self, count_str: str = None):
+        if count_str is False or count_str == "0":
+            count_str = None
+        try:
+            self.page.window.badge_label = count_str
+            self.page.update()
+        except Exception as e:
+            logger.error(f"Failed to set Dock badge: {e}")
 
     def handle_window_event(self, event_name: str):
         if event_name == "close":
@@ -35,4 +39,4 @@ class MacOSAdapter(SystemAdapter):
             self.page.window.minimized = True
             self.page.update()
         elif event_name in ["focus", "restore"]:
-            self.set_tray_badge(False)
+            self.set_tray_badge(None)

@@ -121,7 +121,8 @@ def load_settings():
         "auto_start": False,
         "notify_always": True,
         "cache_cleanup_enabled": False,
-        "cache_max_size_mb": 200
+        "cache_max_size_mb": 200,
+        "unread_badge_type": "messages"
     }
 
     if SETTINGS_FILE.exists():

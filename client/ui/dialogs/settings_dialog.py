@@ -36,6 +36,17 @@ class SettingsDialog(BaseDialog):
             self.notify_switch
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
+        self.badge_type_dropdown = ft.Dropdown(
+            label="Счётчик в панели задач/док-панели",
+            value=self.current_settings.get("unread_badge_type", "messages"),
+            options=[
+                ft.dropdown.Option("messages", "Количество сообщений"),
+                ft.dropdown.Option("chats", "Количество чатов")
+            ],
+            on_select=self._handle_badge_type_change,
+            width=260
+        )
+
         logout_btn = ft.ElevatedButton("Выйти из аккаунта", color=ft.Colors.WHITE, bgcolor=ft.Colors.RED_500, on_click=self._handle_logout)
 
         # Вкладка 2: Активные устройства
@@ -112,6 +123,7 @@ class SettingsDialog(BaseDialog):
                                 content=ft.Column([
                                     autostart_row,
                                     notify_row,
+                                    self.badge_type_dropdown,
                                     ft.Divider(),
                                     logout_btn
                                 ], scroll=ft.ScrollMode.AUTO, spacing=15),
@@ -197,6 +209,10 @@ class SettingsDialog(BaseDialog):
 
     def _handle_notify(self, e):
         self.current_settings["notify_always"] = self.notify_switch.value
+        self.on_setting_change(self.current_settings)
+
+    def _handle_badge_type_change(self, e):
+        self.current_settings["unread_badge_type"] = self.badge_type_dropdown.value
         self.on_setting_change(self.current_settings)
 
     def _handle_logout(self, e):

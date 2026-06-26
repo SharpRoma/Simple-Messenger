@@ -82,6 +82,10 @@ class ChatController(BaseController):
         self.profile_dialog = None
         self.scroll_positions = {}
         self.last_notif_time = {}
+        try:
+            self.app.os.set_tray_badge(None)
+        except Exception:
+            pass
 
     def get_chat_name(self, chat_data: dict) -> str:
         name = chat_data.get('name', 'Неизвестный чат')
@@ -160,6 +164,7 @@ class ChatController(BaseController):
 
         self.update_drawer()
         self.update_menu_badge()
+        self.update_tray_and_taskbar_badge()
         self.page.run_task(self.check_and_cleanup_cache)
 
     def handle_send_message(self, text: str):
@@ -292,6 +297,23 @@ class ChatController(BaseController):
                 logger.error(f"Error getting has_any_unread: {e}")
         self.chat_screen.update_menu_badge(has_unread)
 
+    def update_tray_and_taskbar_badge(self):
+        if not self.app.db:
+            return
+        try:
+            badge_type = self.app.settings.get("unread_badge_type", "messages")
+            if badge_type == "chats":
+                count = self.app.db.get_total_unread_chats(self.app.current_username)
+            else:
+                count = self.app.db.get_total_unread_messages(self.app.current_username)
+
+            if count > 0:
+                self.app.os.set_tray_badge(str(count))
+            else:
+                self.app.os.set_tray_badge(None)
+        except Exception as e:
+            logger.error(f"Error updating tray/taskbar badge: {e}", exc_info=True)
+
     def show_create_group_modal(self):
         def on_create(name):
             self.page.run_task(self.app.network.send, {"action": "create_group", "name": name})
@@ -353,6 +375,7 @@ class ChatController(BaseController):
             self.app.settings = new_settings
             self.app.settings_manager.save_settings(self.app.settings)
             self.app.settings_manager.set_autostart(self.app.settings.get("auto_start", False))
+            self.update_tray_and_taskbar_badge()
 
         def on_logout():
             self.app.settings["auto_login"] = False
@@ -706,6 +729,11 @@ class ChatController(BaseController):
                 )
                 if msg['sender'] != self.app.current_username:
                     self.page.run_task(self.app.network.send, {"action": "read_chat", "chat_id": chat_id})
+                    if self.app.db:
+                        try:
+                            self.app.db.mark_chat_as_read(chat_id, self.app.current_username)
+                        except Exception as e:
+                            logger.error(f"Error marking active chat message as read: {e}")
             else:
                 if self.chat_screen:
                     import time
@@ -728,10 +756,10 @@ class ChatController(BaseController):
                     notif_text = f"Отправил файл: {msg.get('file_name')}" if msg.get(
                         'file_name') else f"{msg['sender']}: {msg.get('text', '')}"
                     self.app.os.notify(f"Чат: {cname}", notif_text)
-                    self.app.os.set_tray_badge(True)
 
             self.update_drawer()
             self.update_menu_badge()
+            self.update_tray_and_taskbar_badge()
 
         elif action == "msg_deleted":
             msg_id = data.get("msg_id")
@@ -797,6 +825,7 @@ class ChatController(BaseController):
                 self.chat_screen.mark_own_messages_as_read()
             self.update_drawer()
             self.update_menu_badge()
+            self.update_tray_and_taskbar_badge()
 
         elif action == "chat_list":
             chats = data.get("chats", [])
@@ -817,6 +846,7 @@ class ChatController(BaseController):
             for c in db_chats:
                 self.chats_info[c['id']] = c
             self.update_drawer()
+            self.update_tray_and_taskbar_badge()
 
             pending_id = getattr(self, 'pending_active_chat_id', None)
             if pending_id and pending_id in self.chats_info:
@@ -1195,7 +1225,6 @@ class ChatController(BaseController):
                 self.scroll_positions[self.active_chat_id] = self.chat_screen.current_scroll_pos
 
         self.active_chat_id = chat_id
-        self.app.os.set_tray_badge(False)
         self.page.run_task(self.app.network.send, {"action": "read_chat", "chat_id": chat_id})
         if self.app.db:
             try:
@@ -1204,6 +1233,7 @@ class ChatController(BaseController):
                 logger.error(f"Error marking chat as read: {e}")
         self.update_drawer()
         self.update_menu_badge()
+        self.update_tray_and_taskbar_badge()
 
         self.history_offset = 0
         self.is_loading_history = True

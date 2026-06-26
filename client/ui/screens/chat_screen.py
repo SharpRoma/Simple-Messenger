@@ -2,7 +2,7 @@ import flet as ft
 from datetime import datetime
 import os
 import logging
-from system.utils import open_file_in_default_app, open_folder_and_select_file
+from system.utils import open_file_in_default_app, open_folder_and_select_file, open_url_in_browser
 
 logger = logging.getLogger("messenger.chat_screen")
 
@@ -614,7 +614,7 @@ class ChatScreen(ft.Container):
                 )
         else:
             # 4. Текстовое сообщение
-            content = ft.Text(text, color=text_color, size=13, selectable=True)
+            content = self._create_text_with_links(text, text_color)
 
         # Контекстное меню "Три точки" (PopupMenuButton)
         menu_items = []
@@ -745,6 +745,31 @@ class ChatScreen(ft.Container):
         container.updated_at = updated_at
         container.is_read = is_read
         return container
+
+    def _create_text_with_links(self, text: str, text_color):
+        import re
+        URL_PATTERN = re.compile(r'(https?://[^\s]+)')
+        if not URL_PATTERN.search(text):
+            return ft.Text(text, color=text_color, size=13, selectable=True)
+
+        spans = []
+        last_idx = 0
+        for match in URL_PATTERN.finditer(text):
+            start, end = match.span()
+            url = match.group(0)
+            if start > last_idx:
+                spans.append(ft.TextSpan(text[last_idx:start]))
+            spans.append(
+                ft.TextSpan(
+                    url,
+                    style=ft.TextStyle(color=ft.Colors.BLUE_400, decoration=ft.TextDecoration.UNDERLINE),
+                    on_click=lambda e, u=url: open_url_in_browser(u)
+                )
+            )
+            last_idx = end
+        if last_idx < len(text):
+            spans.append(ft.TextSpan(text[last_idx:]))
+        return ft.Text(spans=spans, color=text_color, size=13, selectable=True)
 
     def scroll_to_bottom(self, duration: int = 0):
         self.scroll_session_id += 1

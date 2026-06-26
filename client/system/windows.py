@@ -70,13 +70,23 @@ class WindowsAdapter(SystemAdapter):
         except Exception as e:
             logger.error(f"Win Notification Error: {e}")
 
-    def set_tray_badge(self, has_unread: bool):
+    def set_tray_badge(self, count_str: str = None):
+        if count_str is False or count_str == "0":
+            count_str = None
+
         if self.tray_icon:
             try:
+                has_unread = bool(count_str)
                 icon_file = self.unread_icon_path if has_unread else self.icon_path
                 self.tray_icon.icon = Image.open(icon_file)
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to set tray icon: {e}")
+
+        try:
+            self.page.window.badge_label = count_str
+            self.page.update()
+        except Exception as e:
+            logger.error(f"Failed to set taskbar badge: {e}")
 
     def handle_window_event(self, event_name: str):
         if event_name == "close":
@@ -84,4 +94,4 @@ class WindowsAdapter(SystemAdapter):
             self.page.window.visible = False
             self.page.update()
         elif event_name in ["focus", "restore"]:
-            self.set_tray_badge(False)
+            self.set_tray_badge(None)

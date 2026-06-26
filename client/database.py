@@ -1,5 +1,8 @@
 import sqlite3
+import logging
 from pathlib import Path
+
+logger = logging.getLogger("messenger.database")
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
@@ -262,3 +265,25 @@ class ClientDatabase:
                 Message.sender != current_username,
                 Message.is_read == False
             ).limit(1).count() > 0
+
+    def get_total_unread_messages(self, current_username: str) -> int:
+        with self.Session() as session:
+            try:
+                return session.query(Message).filter(
+                    Message.sender != current_username,
+                    Message.is_read == False
+                ).count()
+            except Exception as e:
+                logger.error(f"Error getting total unread messages: {e}")
+                return 0
+
+    def get_total_unread_chats(self, current_username: str) -> int:
+        with self.Session() as session:
+            try:
+                return session.query(Message.chat_id).filter(
+                    Message.sender != current_username,
+                    Message.is_read == False
+                ).distinct().count()
+            except Exception as e:
+                logger.error(f"Error getting total unread chats: {e}")
+                return 0
