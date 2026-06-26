@@ -14,7 +14,8 @@ services:
       - "5432:5432"
 
   server:
-    image: ghcr.io/sharproma/simple-messenger/server:1.2
+    # build: .
+    image: ghcr.io/sharproma/simple-messenger/server:2.0
     container_name: messenger_server
     restart: always
     ports:
