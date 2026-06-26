@@ -64,14 +64,15 @@ if exist "client\build" rmdir /s /q "client\build"
 if exist "*.spec" del /q "*.spec"
 if exist "*.ico" del /q "*.ico"
 
-echo Копирование исходников в ASCII-директорию для сборки...
-xcopy client "%BUILD_DIR%" /E /I /H /Y /Q > nul
+echo Копирование исходников в ASCII-директорию (папка src) для сборки...
+mkdir "%BUILD_DIR%\src"
+xcopy client "%BUILD_DIR%\src" /E /I /H /Y /Q > nul
 
 :: Заходим во временную ASCII папку
 cd /d "%BUILD_DIR%"
 
 echo Сборка нативного приложения (flet build)...
-call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows -v --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
+call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows src -v --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
 
 :: Возвращаемся в оригинальный корень проекта
 cd /d "%ORIGINAL_DIR%"
