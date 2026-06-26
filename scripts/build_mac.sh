@@ -67,12 +67,23 @@ if [ -n "$APP_PATH" ]; then
     echo "Создание установочного образа (.dmg)..."
     DMG_NAME="../dist/SimpleMessenger_Setup_v${APP_VERSION}.dmg"
 
-    # Используем встроенную в macOS утилиту hdiutil (без сторонних программ!)
-    hdiutil create -volname "Simple Messenger" -srcfolder "$FINAL_APP_PATH" -ov -format UDZO "$DMG_NAME" > /dev/null
+    # Создаем временную директорию для формирования правильной структуры DMG
+    DMG_TEMP="build/dmg_temp"
+    mkdir -p "$DMG_TEMP"
+    
+    # Перемещаем .app во временную директорию
+    ditto "$FINAL_APP_PATH" "$DMG_TEMP/Simple Messenger.app"
+    
+    # Создаем ссылку на папку Applications
+    ln -s /Applications "$DMG_TEMP/Applications"
 
-    # --- УДАЛЯЕМ ИСХОДНЫЙ .APP ---
-    echo "Очистка временных файлов (удаление исходного .app)..."
+    # Используем встроенную в macOS утилиту hdiutil
+    hdiutil create -volname "Simple Messenger" -srcfolder "$DMG_TEMP" -ov -format UDZO "$DMG_NAME" > /dev/null
+
+    # --- УДАЛЯЕМ ИСХОДНЫЙ .APP И ВРЕМЕННЫЙ КАТАЛОГ ---
+    echo "Очистка временных файлов..."
     rm -rf "$FINAL_APP_PATH"
+    rm -rf "$DMG_TEMP"
 
     # Уборка мусора
     rm -rf build

@@ -46,7 +46,7 @@ cd client
 
 echo Сборка нативного приложения (flet build)...
 :: Вызываем flet build напрямую из виртуального окружения
-call ..\.venv\Scripts\flet build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" --icon "assets\icon.ico" -o ..\dist
+call ..\.venv\Scripts\flet build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o ..\dist
 
 :: Возвращаемся в корень
 cd ..
