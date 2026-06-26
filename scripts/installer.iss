@@ -9,7 +9,7 @@ AppPublisher=Simple Messenger
 DefaultDirName={autopf}\Simple Messenger
 DefaultGroupName=Simple Messenger
 
-; SetupIconFile=..\client\assets\icon.ico
+SetupIconFile=..\client\assets\icon.ico
 ; OutputDir=..\dist
 
 ; Установщик будет с версией: SimpleMessenger_Setup_v1.1.0.exe

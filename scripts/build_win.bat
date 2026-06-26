@@ -4,7 +4,7 @@ cd /d "%~dp0\.."
 
 echo Начинаем сборку Simple Messenger для Windows...
 
-set ICON_PATH=client\assets\icon.png
+set ICON_PATH=client\assets\icon.ico
 if not exist "%ICON_PATH%" (
     echo ОШИБКА: Файл %ICON_PATH% не найден!
     pause
