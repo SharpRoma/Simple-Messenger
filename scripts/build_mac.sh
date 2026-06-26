@@ -20,9 +20,19 @@ echo "Обнаружена версия проекта: $APP_VERSION"
 rm -rf build ../dist
 mkdir -p ../dist
 
-# Нативная компиляция
-echo "Используется Flet Build..."
-flet build macos --build-version "$APP_VERSION"
+# Нативная компиляция для архитектуры текущего хоста (arm64 или x64)
+# Это предотвращает ошибки компиляции библиотеки cryptography из-за несовместимости архитектур
+HOST_ARCH=$(uname -m)
+if [ "$HOST_ARCH" = "arm64" ]; then
+    TARGET_ARCH="arm64"
+elif [ "$HOST_ARCH" = "x86_64" ]; then
+    TARGET_ARCH="x64"
+else
+    TARGET_ARCH="arm64 x64"
+fi
+
+echo "Используется Flet Build для архитектуры: $TARGET_ARCH..."
+flet build macos --build-version "$APP_VERSION" --arch $TARGET_ARCH
 
 APP_PATH=$(find build/macos -type d -name "*.app" | head -n 1)
 FINAL_APP_PATH="../dist/SimpleMessenger.app"
