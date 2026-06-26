@@ -72,7 +72,7 @@ xcopy client "%BUILD_DIR%\src" /E /I /H /Y /Q > nul
 cd /d "%BUILD_DIR%"
 
 echo Сборка нативного приложения (flet build)...
-call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows src -v --project "SimpleMessenger" --module-name main --compile-app --icon "src\assets\icon.png" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
+call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows src -v --project "SimpleMessenger" --module-name main --compile-app --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
 
 :: Возвращаемся в оригинальный корень проекта
 cd /d "%ORIGINAL_DIR%"
