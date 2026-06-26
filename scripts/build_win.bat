@@ -13,6 +13,12 @@ set LOCALAPPDATA=C:\Users\Public\AppData\Local
 
 echo Начинаем сборку Simple Messenger для Windows...
 
+:: Завершаем любые работающие процессы приложения, чтобы избежать блокировки файлов при перезаписи
+echo Закрытие запущенных копий приложения...
+taskkill /F /IM SimpleMessenger.exe >nul 2>nul
+taskkill /F /IM flet.exe >nul 2>nul
+taskkill /F /IM flet_desktop.exe >nul 2>nul
+
 set ICON_PATH=client\assets\icon.ico
 if not exist "%ICON_PATH%" (
     echo ОШИБКА: Файл %ICON_PATH% не найден!
@@ -57,8 +63,8 @@ xcopy client C:\Users\Public\MessengerClient /E /I /H /Y /Q > nul
 cd /d "C:\Users\Public\MessengerClient"
 
 echo Сборка нативного приложения (flet build)...
-:: Вызываем flet build из оригинального виртуального окружения
-call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
+:: Вызываем flet build из оригинального виртуального окружения с флагом --clear-cache
+call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" --clear-cache -o dist
 
 :: Возвращаемся в оригинальный корень проекта
 cd /d "%ORIGINAL_DIR%"
