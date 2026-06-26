@@ -1,9 +1,7 @@
 @echo off
 chcp 65001 > nul
 
-:: Переходим в короткий (8.3) путь скрипта, чтобы избавиться от кириллицы в рабочем каталоге проекта!
-for %%I in ("%~dp0\..") do set PROJECT_DIR=%%~sI
-cd /d "%PROJECT_DIR%"
+set ORIGINAL_DIR=%cd%
 
 :: Обход ошибки путей с кириллицей (например, C:\Users\Администратор) при работе Flutter SDK.
 :: Используем встроенные короткие пути Windows (8.3), которые содержат только ASCII.
@@ -48,6 +46,8 @@ if %errorlevel% neq 0 (
     python -m pip install -r client/requirements.txt
 )
 
+set BUILD_DIR=C:\Users\Public\MessengerClient_%RANDOM%
+
 echo Удаление старых сборок...
 if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
@@ -55,19 +55,28 @@ if exist "client\build" rmdir /s /q "client\build"
 if exist "*.spec" del /q "*.spec"
 if exist "*.ico" del /q "*.ico"
 
-:: Заходим в папку client для сборки
-cd client
+echo Копирование исходников в ASCII-директорию для сборки...
+xcopy client "%BUILD_DIR%" /E /I /H /Y /Q > nul
+
+:: Заходим во временную ASCII папку
+cd /d "%BUILD_DIR%"
 
 echo Сборка нативного приложения (flet build)...
-call ..\.venv\Scripts\flet build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o ..\dist
+call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows --project "SimpleMessenger" --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
 
-cd ..
+:: Возвращаемся в оригинальный корень проекта
+cd /d "%ORIGINAL_DIR%"
 
-if not exist "dist\SimpleMessenger.exe" (
+if not exist "%BUILD_DIR%\dist\SimpleMessenger.exe" (
     echo ОШИБКА СБОРКИ: Файл SimpleMessenger.exe не был создан.
+    if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
     pause
     exit /b 1
 )
+
+:: Переносим скомпилированные файлы на место папки dist
+if exist "dist" rmdir /s /q "dist"
+move "%BUILD_DIR%\dist" "dist" > nul
 
 :: --- ИНТЕГРАЦИЯ INNO SETUP ---
 echo.
@@ -91,6 +100,7 @@ if exist %ISCC_PATH% (
 :: ФИНАЛЬНАЯ УБОРКА МУСОРА
 if exist "build" rmdir /s /q "build"
 if exist "client\build" rmdir /s /q "client\build"
+if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
 
 echo.
 echo СБОРКА УСПЕШНО ЗАВЕРШЕНА!
