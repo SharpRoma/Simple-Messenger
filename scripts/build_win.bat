@@ -3,17 +3,12 @@ chcp 65001 > nul
 cd /d "%~dp0\.."
 set ORIGINAL_DIR=%cd%
 
-:: Обход ошибки путей с кириллицей (например, C:\Users\Администратор) при установке/работе Flutter SDK.
-:: Временно перенаправляем домашний профиль в стандартную ASCII-директорию C:\Users\Public.
-set USERPROFILE=C:\Users\Public
-set HOMEPATH=\Users\Public
-set HOMEDRIVE=C:
-set APPDATA=C:\Users\Public\AppData\Roaming
-set LOCALAPPDATA=C:\Users\Public\AppData\Local
-
-if not exist "%APPDATA%" mkdir "%APPDATA%"
-if not exist "%LOCALAPPDATA%" mkdir "%LOCALAPPDATA%"
-if not exist "C:\Users\Public\Documents" mkdir "C:\Users\Public\Documents"
+:: Обход ошибки путей с кириллицей (например, C:\Users\Администратор) при работе Flutter SDK.
+:: Вместо подмены профиля используем встроенные короткие пути Windows (8.3), которые содержат только ASCII.
+for %%I in ("%USERPROFILE%") do set USERPROFILE=%%~sI
+for %%I in ("%APPDATA%") do set APPDATA=%%~sI
+for %%I in ("%LOCALAPPDATA%") do set LOCALAPPDATA=%%~sI
+for %%I in ("%HOMEPATH%") do set HOMEPATH=%%~sI
 
 echo Начинаем сборку Simple Messenger для Windows...
 
@@ -52,19 +47,20 @@ if %errorlevel% neq 0 (
     python -m pip install -r client/requirements.txt
 )
 
+set BUILD_DIR=C:\Users\Public\MessengerClient_%RANDOM%
+
 echo Удаление старых сборок...
 if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
 if exist "client\build" rmdir /s /q "client\build"
 if exist "*.spec" del /q "*.spec"
 if exist "*.ico" del /q "*.ico"
-if exist "C:\Users\Public\MessengerClient" rmdir /s /q "C:\Users\Public\MessengerClient"
 
 echo Копирование исходников в ASCII-директорию для сборки...
-xcopy client C:\Users\Public\MessengerClient /E /I /H /Y /Q > nul
+xcopy client "%BUILD_DIR%" /E /I /H /Y /Q > nul
 
 :: Заходим во временную ASCII папку
-cd /d "C:\Users\Public\MessengerClient"
+cd /d "%BUILD_DIR%"
 
 echo Сборка нативного приложения (flet build)...
 :: Вызываем flet build из оригинального виртуального окружения
@@ -73,16 +69,16 @@ call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows --project "SimpleMessenge
 :: Возвращаемся в оригинальный корень проекта
 cd /d "%ORIGINAL_DIR%"
 
-if not exist "C:\Users\Public\MessengerClient\dist\SimpleMessenger.exe" (
+if not exist "%BUILD_DIR%\dist\SimpleMessenger.exe" (
     echo ОШИБКА СБОРКИ: Файл SimpleMessenger.exe не был создан.
-    if exist "C:\Users\Public\MessengerClient" rmdir /s /q "C:\Users\Public\MessengerClient"
+    if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
     pause
     exit /b 1
 )
 
 :: Переносим скомпилированные файлы на место папки dist
 if exist "dist" rmdir /s /q "dist"
-move "C:\Users\Public\MessengerClient\dist" "dist" > nul
+move "%BUILD_DIR%\dist" "dist" > nul
 
 :: --- ИНТЕГРАЦИЯ INNO SETUP ---
 echo.
@@ -111,7 +107,7 @@ if exist "build" rmdir /s /q "build"
 if exist "client\build" rmdir /s /q "client\build"
 if exist "*.spec" del /q "*.spec"
 if exist "*.ico" del /q "*.ico"
-if exist "C:\Users\Public\MessengerClient" rmdir /s /q "C:\Users\Public\MessengerClient"
+if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
 
 echo.
 echo СБОРКА УСПЕШНО ЗАВЕРШЕНА!
