@@ -71,8 +71,8 @@ xcopy client "%BUILD_DIR%\src" /E /I /H /Y /Q > nul
 :: Заходим во временную ASCII папку
 cd /d "%BUILD_DIR%"
 
-echo Сборка нативного приложения (flet build)...
-call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows src -v --project "SimpleMessenger" --module-name main --compile-app --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
+echo Сборка нативного приложения (flet build). Лог сборки будет сохранен в flet_build_log.txt...
+call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows src -v --project "SimpleMessenger" --module-name main --compile-app --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist > "%ORIGINAL_DIR%\flet_build_log.txt" 2>&1
 
 :: Возвращаемся в оригинальный корень проекта
 cd /d "%ORIGINAL_DIR%"
@@ -108,9 +108,10 @@ if exist %ISCC_PATH% (
 )
 
 :: ФИНАЛЬНАЯ УБОРКА МУСОРА
-if exist "build" rmdir /s /q "build"
-if exist "client\build" rmdir /s /q "client\build"
-if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
+:: ОТКЛЮЧЕНО ДЛЯ ОТЛАДКИ!
+:: if exist "build" rmdir /s /q "build"
+:: if exist "client\build" rmdir /s /q "client\build"
+:: if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
 
 echo.
 echo СБОРКА УСПЕШНО ЗАВЕРШЕНА!
