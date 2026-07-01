@@ -68,6 +68,9 @@ echo Копирование исходников в ASCII-директорию (
 mkdir "%BUILD_DIR%\src"
 xcopy client "%BUILD_DIR%\src" /E /I /H /Y /Q > nul
 
+:: Для Windows принудительно включаем hide_window_on_start в pyproject.toml
+powershell -Command "(Get-Content '%BUILD_DIR%\src\pyproject.toml') -replace 'hide_window_on_start = false', 'hide_window_on_start = true' | Set-Content '%BUILD_DIR%\src\pyproject.toml'"
+
 :: Заходим во временную ASCII папку
 cd /d "%BUILD_DIR%"
 
