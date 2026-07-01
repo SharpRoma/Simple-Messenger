@@ -1,0 +1,16 @@
+[project]
+name = "SimpleMessenger"
+version = "1.2.0"
+description = "Simple Messenger Client"
+dependencies = [
+    "flet==0.85.3",
+    "pystray==0.19.5",
+    "pillow==12.2.0",
+    "keyring==25.7.0",
+    "websockets==16.0",
+    "cryptography==49.0.0",
+    "sqlalchemy==2.0.50"
+]
+
+[tool.flet.app]
+hide_window_on_start = true

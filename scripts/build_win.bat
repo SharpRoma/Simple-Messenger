@@ -71,10 +71,10 @@ xcopy client "%BUILD_DIR%\src" /E /I /H /Y /Q > nul
 :: Заходим во временную ASCII папку
 cd /d "%BUILD_DIR%"
 
-echo Сборка нативного приложения (flet build). Лог сборки будет сохранен в flet_build_log.txt...
+echo Запуск сборки нативного приложения (flet build)...
 set PYTHONIOENCODING=utf-8
 set PYTHONUTF8=1
-call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows src -v --no-rich-output --project "SimpleMessenger" --module-name main --compile-app --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist > "%ORIGINAL_DIR%\flet_build_log.txt" 2>&1
+call "%ORIGINAL_DIR%\.venv\Scripts\flet" build windows src -v --no-rich-output --project "SimpleMessenger" --module-name main --build-version "%APP_VERSION%" --product "Simple Messenger" --copyright "SharpRoma" -o dist
 
 :: Возвращаемся в оригинальный корень проекта
 cd /d "%ORIGINAL_DIR%"

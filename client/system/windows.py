@@ -45,6 +45,7 @@ class WindowsAdapter(SystemAdapter):
         # 2. Мягко и нативно завершаем Flet
         async def exit_task():
             import asyncio
+            import os
 
             # Отключаем наш перехватчик крестика, чтобы окно реально закрылось, а не спряталось
             self.page.window.on_event = None
@@ -58,7 +59,13 @@ class WindowsAdapter(SystemAdapter):
 
             # Нативно просим окно закрыться.
             # Flet сам всё потушит и чисто завершит Python-процесс
-            await self.page.window.close()
+            try:
+                await self.page.window.close()
+            except Exception:
+                pass
+            
+            # Принудительно завершаем Python-процесс, чтобы освободить порт single-instance
+            os._exit(0)
 
         self.page.run_task(exit_task)
 
