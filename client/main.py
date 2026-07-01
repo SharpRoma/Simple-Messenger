@@ -1,6 +1,7 @@
 import os
-os.environ["FLET_HIDE_WINDOW_ON_START"] = "true"
 import sys
+if sys.platform == "win32":
+    os.environ["FLET_HIDE_WINDOW_ON_START"] = "true"
 
 # Ранний перехватчик ошибок импорта
 try:
@@ -20,7 +21,12 @@ try:
 except Exception as early_err:
     import traceback
     try:
-        app_data_path = os.path.join(os.environ.get('APPDATA', ''), 'SimpleMessenger')
+        if sys.platform == "win32":
+            app_data_path = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'SimpleMessenger')
+        elif sys.platform == "darwin":
+            app_data_path = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'SimpleMessenger')
+        else:
+            app_data_path = os.path.join(os.path.expanduser('~'), '.config', 'SimpleMessenger')
         os.makedirs(app_data_path, exist_ok=True)
         with open(os.path.join(app_data_path, 'early_crash.log'), 'w', encoding='utf-8') as f:
             f.write("Early import crash:\n")
@@ -36,6 +42,13 @@ logger = logging.getLogger("messenger.main")
 
 def main(page: ft.Page):
     logger.info("Запуск приложения клиента (main)...")
+    
+    def on_disconnect(e):
+        logger.info("Сессия Flet закрыта. Завершение процесса Python.")
+        import os
+        os._exit(0)
+    page.on_disconnect = on_disconnect
+
     try:
         logger.info("Шаг 1: Автогенерация иконок...")
         config.create_icons_if_needed()
@@ -61,6 +74,7 @@ def main(page: ft.Page):
                 s.sendall(b"restore")
                 s.close()
                 logger.info("Другая копия приложения уже запущена. Отправлен сигнал развернуть окно. Завершение работы.")
+                print("ОШИБКА: Другая копия приложения уже запущена на порту 48951! Отправлен сигнал восстановления. Завершение работы.")
                 try:
                     page.window.destroy()
                 except Exception:
@@ -115,6 +129,13 @@ def main(page: ft.Page):
 
         logger.info("Шаг 6: Делаем окно видимым...")
         page.window.visible = True
+        page.window.minimized = False
+        page.window.focused = True
+        
+        # Трюк для вывода окна на передний план при старте
+        page.window.always_on_top = True
+        page.update()
+        page.window.always_on_top = False
         page.update()
 
         logger.info("Шаг 7: Запуск главного контроллера MainWindow...")

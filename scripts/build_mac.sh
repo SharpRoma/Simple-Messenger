@@ -49,7 +49,7 @@ else
 fi
 
 echo "Используется Flet Build для архитектуры: $TARGET_ARCH..."
-flet build macos --build-version "$APP_VERSION" --arch $TARGET_ARCH
+flet build macos --project "SimpleMessenger" --module-name main --build-version "$APP_VERSION" --arch $TARGET_ARCH
 
 APP_PATH=$(find build/macos -type d -name "*.app" | head -n 1)
 FINAL_APP_PATH="../dist/SimpleMessenger.app"
