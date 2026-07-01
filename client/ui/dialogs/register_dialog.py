@@ -50,6 +50,13 @@ class RegisterDialog(BaseDialog):
             self.page.update()
             return
 
+        import re
+        if not re.match(r"^[a-zа-яё]+\.[a-zа-яё]{2}$", username):
+            self.reg_err.value = "Логин должен быть в формате фамилия.ио (в нижнем регистре), например: ivanov.dn"
+            self.reg_err.color = ft.Colors.RED
+            self.page.update()
+            return
+
         self.reg_err.value = "Подключение..."
         self.reg_err.color = ft.Colors.BLUE
         self.page.update()

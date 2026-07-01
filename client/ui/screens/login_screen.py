@@ -116,6 +116,11 @@ class LoginScreen(ft.Container):
             self.show_error("Заполните все поля!")
             return
 
+        import re
+        if not re.match(r"^[a-zа-яё]+\.[a-zа-яё]{2}$", username):
+            self.show_error("Логин должен быть в формате фамилия.ио (в нижнем регистре), например: ivanov.dn")
+            return
+
         self.show_loading()
         # Передаем порт наверх
         self.on_login_callback(host, port, username, password, auto_login)
