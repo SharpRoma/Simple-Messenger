@@ -25,7 +25,7 @@ class RegisterDialog(BaseDialog):
             label="Секретный код сервера", password=True, can_reveal_password=True,
             on_submit=self._handle_submit
         )
-        self.reg_err = ft.Text(color="red")
+        self.reg_err = ft.Text(color="red", text_align=ft.TextAlign.CENTER, width=300)
 
         self.dialog = ft.AlertDialog(
             title=ft.Text("Регистрация аккаунта"),
@@ -51,7 +51,7 @@ class RegisterDialog(BaseDialog):
             return
 
         import re
-        if not re.match(r"^[a-zа-яё]+\.[a-zа-яё]{2}$", username):
+        if not re.match(r"^[a-z]+\.[a-z]{2}$", username):
             self.reg_err.value = "Логин должен быть в формате фамилия.ио (в нижнем регистре), например: ivanov.dn"
             self.reg_err.color = ft.Colors.RED
             self.page.update()

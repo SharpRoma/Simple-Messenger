@@ -62,7 +62,7 @@ class LoginScreen(ft.Container):
 
         self.auto_login_checkbox = ft.Checkbox(label="Входить автоматически", value=self.settings.get("auto_login"))
         checkbox_row = ft.Row([self.auto_login_checkbox], width=300)
-        self.status_text = ft.Text(color=ft.Colors.RED)
+        self.status_text = ft.Text(color=ft.Colors.RED, text_align=ft.TextAlign.CENTER, width=300)
 
         btn_class = getattr(ft, 'Button', ft.ElevatedButton)
 
@@ -117,7 +117,7 @@ class LoginScreen(ft.Container):
             return
 
         import re
-        if not re.match(r"^[a-zа-яё]+\.[a-zа-яё]{2}$", username):
+        if not re.match(r"^[a-z]+\.[a-z]{2}$", username):
             self.show_error("Логин должен быть в формате фамилия.ио (в нижнем регистре), например: ivanov.dn")
             return
 

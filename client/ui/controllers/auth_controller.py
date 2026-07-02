@@ -28,6 +28,12 @@ class AuthController(BaseController):
         self.page.add(self.login_screen)
 
     def handle_login(self, host, port, username, password, auto_login):
+        import re
+        if not re.match(r"^[a-z]+\.[a-z]{2}$", username):
+            if self.login_screen:
+                self.login_screen.show_error("Логин должен быть в формате фамилия.ио (в нижнем регистре), например: ivanov.dn")
+            return
+
         async def login_task():
             response = await self.app.network.connect(host, int(port), username, password)
 

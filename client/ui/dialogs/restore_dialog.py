@@ -22,7 +22,7 @@ class RestoreDialog(BaseDialog):
         self.reg_pass = ft.TextField(label="Новый пароль", password=True, can_reveal_password=True,
                                      on_submit=self._handle_submit)
 
-        self.reg_err = ft.Text(color="red")
+        self.reg_err = ft.Text(color="red", text_align=ft.TextAlign.CENTER, width=300)
 
         self.dialog = ft.AlertDialog(
             title=ft.Text("Восстановление пароля"),
