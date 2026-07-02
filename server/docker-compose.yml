@@ -1,4 +1,5 @@
 version: '3.8'
+name: messenger
 
 services:
   db:
@@ -11,12 +12,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
-  server:
+  api:
     # build: .
-    image: ghcr.io/sharproma/simple-messenger/server:1.3
-    container_name: messenger_server
+    image: ghcr.io/sharproma/simple-messenger/api:1.3
     restart: always
     ports:
       - "8989:8888"
